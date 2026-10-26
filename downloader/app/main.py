@@ -27,6 +27,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlsplit
 
 import anyio
@@ -36,6 +37,8 @@ from yt_dlp.utils import DownloadError
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field
+
+from . import library
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 MEDIA_DIR = DATA_DIR / "media"
@@ -77,7 +80,12 @@ CREATE TABLE IF NOT EXISTS videos (
     user_agent  TEXT,
     origin      TEXT,
     sniffed     INTEGER NOT NULL DEFAULT 0, -- 1 = media URL caught by the browser extension
-    source      TEXT NOT NULL DEFAULT 'url' -- url | upload
+    source      TEXT NOT NULL DEFAULT 'url', -- url | upload
+    kind        TEXT NOT NULL DEFAULT 'clip', -- movie | episode | clip
+    show        TEXT,                       -- episodes only
+    season      INTEGER,
+    episode     INTEGER,
+    year        INTEGER
 )
 """
 # Columns added after the first release. Older databases get them at startup.
@@ -87,6 +95,11 @@ ADDED_COLUMNS = {
     "origin": "TEXT",
     "sniffed": "INTEGER NOT NULL DEFAULT 0",
     "source": "TEXT NOT NULL DEFAULT 'url'",
+    "kind": "TEXT NOT NULL DEFAULT 'clip'",
+    "show": "TEXT",
+    "season": "INTEGER",
+    "episode": "INTEGER",
+    "year": "INTEGER",
 }
 
 app = FastAPI(title="stream-kubenex")
@@ -229,10 +242,10 @@ def fetch(vid: str, url: str, headers: dict, convert: bool) -> None:
         info = ydl.extract_info(url, download=False)
         set_fields(
             vid,
-            title=info.get("title"),
             uploader=info.get("uploader"),
             duration=int(info.get("duration") or 0),
             description=(info.get("description") or "")[:500],
+            **library.from_ytdlp(info),
         )
         ydl.process_ie_result(info, download=True)
 
@@ -343,6 +356,14 @@ def startup() -> None:
         for col, sql_type in ADDED_COLUMNS.items():
             if col not in have:
                 conn.execute(f"ALTER TABLE videos ADD COLUMN {col} {sql_type}")
+        if "kind" not in have:
+            # First start with the library fields: guess them for the existing videos.
+            for r in conn.execute("SELECT id, title, source FROM videos").fetchall():
+                fields = library.guess(r["title"] or "", "movie" if r["source"] == "upload" else "clip")
+                if r["source"] != "upload":
+                    fields["title"] = r["title"]  # keep a download's real title
+                cols = ", ".join(f"{k} = ?" for k in fields)
+                conn.execute(f"UPDATE videos SET {cols} WHERE id = ?", (*fields.values(), r["id"]))
         # A pod restart interrupts running work; queue it again.
         conn.execute("UPDATE videos SET status = 'queued' WHERE status IN ('downloading', 'converting')")
     for lane in LANES:
@@ -460,10 +481,13 @@ async def upload_file(request: Request, filename: str = Query(min_length=1, max_
         src.unlink(missing_ok=True)
         raise
 
+    fields = library.guess(Path(filename).stem, default_kind="movie")
     with db() as conn:
         conn.execute(
-            "INSERT INTO videos (id, url, status, title, created_at, source) VALUES (?, ?, 'queued', ?, ?, 'upload')",
-            (vid, f"upload:{filename}", Path(filename).stem, time.time()),
+            "INSERT INTO videos (id, url, status, created_at, source, title, kind, show, season, episode, year) "
+            "VALUES (?, ?, 'queued', ?, 'upload', ?, ?, ?, ?, ?, ?)",
+            (vid, f"upload:{filename}", time.time(), fields["title"], fields["kind"],
+             fields["show"], fields["season"], fields["episode"], fields["year"]),
         )
     WAKE["upload"].set()
     return {"id": vid, "status": "queued"}
@@ -501,6 +525,45 @@ def retry_video(vid: str) -> dict:
     return {"id": vid, "status": "queued"}
 
 
+class VideoUpdate(BaseModel):
+    """Library fields the web form's Edit button may change. Send only what changes."""
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["movie", "episode", "clip"] | None = None
+    title: str | None = Field(default=None, max_length=300)
+    show: str | None = Field(default=None, max_length=200)
+    season: int | None = Field(default=None, ge=0, le=999)
+    episode: int | None = Field(default=None, ge=0, le=9999)
+    year: int | None = Field(default=None, ge=1880, le=2100)
+
+
+@app.patch("/api/videos/{vid}", dependencies=[Depends(require_token)])
+def update_video(vid: str, req: VideoUpdate) -> dict:
+    changes = req.model_dump(exclude_unset=True)
+    for key in ("title", "show"):
+        if isinstance(changes.get(key), str):
+            changes[key] = changes[key].strip() or None
+    if "title" in changes and not changes["title"]:
+        raise HTTPException(400, "Title cannot be empty.")
+    with db() as conn:
+        row = conn.execute("SELECT kind, show FROM videos WHERE id = ?", (vid,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "No video with that id.")
+        kind = changes.get("kind") or row["kind"]
+        if kind == "episode" and not changes.get("show", row["show"]):
+            raise HTTPException(400, "An episode needs a show name.")
+        # Fields that do not apply to the kind are cleared, so nothing stale lingers.
+        if kind != "episode":
+            changes.update(show=None, season=None, episode=None)
+        if kind != "movie":
+            changes["year"] = None
+        if changes:
+            cols = ", ".join(f"{k} = ?" for k in changes)
+            conn.execute(f"UPDATE videos SET {cols} WHERE id = ?", (*changes.values(), vid))
+        updated = dict(conn.execute("SELECT * FROM videos WHERE id = ?", (vid,)).fetchone())
+    return updated
+
+
 @app.delete("/api/videos/{vid}", status_code=204, dependencies=[Depends(require_token)])
 def delete_video(vid: str) -> Response:
     with db() as conn:
@@ -524,6 +587,18 @@ def feed() -> dict:
             "WHERE status = 'ready' ORDER BY created_at DESC"
         ).fetchall()
     return {"videos": [{**dict(r), **media_urls(r["id"])} for r in rows]}
+
+
+@app.get("/api/library")
+def library_feed() -> dict:
+    """The Roku home screen: recent videos, TV shows (with seasons), movies and clips.
+    Open like /api/feed, and for the same reason."""
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT id, title, uploader, duration, description, kind, show, season, episode, year "
+            "FROM videos WHERE status = 'ready' ORDER BY created_at DESC"
+        ).fetchall()
+    return library.group([{**dict(r), **media_urls(r["id"])} for r in rows])
 
 
 @app.get("/healthz")

@@ -31,6 +31,19 @@
   .failed { color:var(--bad); } .ready { color:var(--ok); }
   .actions { display:flex; gap:6px; flex:none; }
   a { color:var(--accent); }
+  nav { display:flex; gap:6px; margin:4px 0 12px; flex-wrap:wrap; }
+  nav button { background:none; color:var(--muted); border:1px solid var(--line); padding:5px 12px; font-size:13px; border-radius:999px; }
+  nav button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .kind { display:inline-block; font-size:11px; font-weight:600; padding:0 6px; border:1px solid var(--line); border-radius:4px; margin-right:6px; }
+  li.group { background:none; border:0; padding:14px 2px 4px; margin:0; font-weight:600; }
+  li.group span { color:var(--muted); font-weight:400; font-size:13px; }
+  .edit { display:grid; grid-template-columns:repeat(auto-fit, minmax(120px, 1fr)); gap:8px; flex:1; }
+  .edit label { display:flex; flex-direction:column; font-size:12px; color:var(--muted); gap:2px; }
+  .edit label.wide { grid-column:1 / -1; }
+  .edit label[hidden] { display:none; }
+  .edit input, .edit select { padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); font:inherit; font-size:14px; }
+  .edit .buttons { grid-column:1 / -1; display:flex; gap:6px; }
+  .edit .buttons button { padding:6px 12px; font-size:13px; }
 </style>
 </head>
 <body>
@@ -46,7 +59,14 @@
     <input id="file" type="file" accept="video/*,.mkv,.ts,.mts" multiple hidden>
   </div>
   <div id="msg"></div>
+  <nav id="tabs">
+    <button data-view="all">All</button>
+    <button data-view="shows">TV shows</button>
+    <button data-view="movies">Movies</button>
+    <button data-view="clips">Clips</button>
+  </nav>
   <ul id="list"></ul>
+  <datalist id="show-names"></datalist>
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -87,7 +107,21 @@ async function api(method, path, body) {
   return res.status === 204 ? null : res.json();
 }
 
+// "TV" / "Movie" / "Clip" badge plus where the video sits in the library.
+function libraryLine(v) {
+  let text = "";
+  if (v.kind === "episode") {
+    text = [v.show, v.season != null ? "Season " + v.season : "", v.episode != null ? "Episode " + v.episode : ""]
+      .filter(Boolean).join(" · ");
+  } else if (v.kind === "movie" && v.year) {
+    text = String(v.year);
+  }
+  const badge = { episode: "TV", movie: "Movie", clip: "Clip" }[v.kind] || "Clip";
+  return el("div", { className: "muted" }, el("span", { className: "kind", textContent: badge }), text);
+}
+
 function row(v) {
+  if (editing === v.id) return editRow(v);
   const thumb = v.thumbnail ? el("img", { src: v.thumbnail, alt: "" }) : el("div", { className: "ph" });
   let status = v.status;
   const busy = v.status === "downloading" || v.status === "converting";
@@ -98,6 +132,7 @@ function row(v) {
   if (v.source === "upload") status += " · imported";
   const info = el("div", { className: "info" },
     el("div", { className: "title", textContent: v.title || v.url, title: v.url }),
+    libraryLine(v),
     el("div", { className: "muted " + v.status, textContent: status }),
   );
   if (busy) {
@@ -110,15 +145,125 @@ function row(v) {
   // A failed import has no file left to retry; upload it again instead.
   if (v.status === "failed" && v.source !== "upload") actions.append(el("button", { className: "ghost", textContent: "Retry",
     onclick: () => api("POST", `/api/videos/${v.id}/retry`).then(refresh) }));
+  if (v.status !== "failed") actions.append(el("button", { className: "ghost", textContent: "Edit",
+    onclick: () => { editing = v.id; render(); } }));
   if (!busy) actions.append(el("button", { className: "ghost", textContent: "Delete",
     onclick: () => confirm("Delete this video?") && api("DELETE", `/api/videos/${v.id}`).then(refresh) }));
   return el("li", {}, thumb, info, actions);
 }
 
+// --- editing ------------------------------------------------------------------
+// While a row is being edited, refresh() keeps fetching but does not redraw the
+// list, so the 2-second poll never wipes what you are typing.
+let editing = null;
+
+function field(label, input, wide = false) {
+  return el("label", { className: wide ? "wide" : "" }, label, input);
+}
+
+function editRow(v) {
+  const kind = el("select", {},
+    el("option", { value: "episode", textContent: "TV episode" }),
+    el("option", { value: "movie", textContent: "Movie" }),
+    el("option", { value: "clip", textContent: "Clip" }));
+  kind.value = v.kind || "clip";
+  const title = el("input", { value: v.title || "" });
+  const show = el("input", { value: v.show || "", placeholder: "Show name" });
+  show.setAttribute("list", "show-names");
+  const num = (value) => el("input", { type: "number", min: 0, value: value ?? "" });
+  const season = num(v.season), episode = num(v.episode);
+  const year = el("input", { type: "number", min: 1880, max: 2100, value: v.year ?? "" });
+  const err = el("span", { className: "muted failed" });
+
+  const tvOnly = [field("Show", show, true), field("Season", season), field("Episode", episode)];
+  const movieOnly = [field("Year", year)];
+  function sync() {
+    tvOnly.forEach((f) => (f.hidden = kind.value !== "episode"));
+    movieOnly.forEach((f) => (f.hidden = kind.value !== "movie"));
+  }
+  kind.onchange = sync;
+  sync();
+
+  const toInt = (input) => (input.value === "" ? null : Number(input.value));
+  async function save() {
+    try {
+      await api("PATCH", `/api/videos/${v.id}`, {
+        kind: kind.value, title: title.value,
+        show: show.value || null, season: toInt(season), episode: toInt(episode), year: toInt(year),
+      });
+      editing = null;
+      refresh();
+    } catch (e) {
+      err.textContent = e.message;
+    }
+  }
+
+  const form = el("div", { className: "edit" },
+    field("Type", kind), field("Title", title, true), ...tvOnly, ...movieOnly,
+    el("div", { className: "buttons" },
+      el("button", { textContent: "Save", onclick: save }),
+      el("button", { className: "ghost", textContent: "Cancel", onclick: () => { editing = null; render(); } }),
+      err));
+  form.addEventListener("keydown", (ev) => { if (ev.key === "Enter") save(); if (ev.key === "Escape") { editing = null; render(); } });
+  const thumb = v.thumbnail ? el("img", { src: v.thumbnail, alt: "" }) : el("div", { className: "ph" });
+  return el("li", {}, thumb, form);
+}
+
+// --- views --------------------------------------------------------------------
+
+let view = "all";
+try { view = localStorage.getItem("view") || "all"; } catch {}
+let videos = [];
+
+function byTitle(a, b) {
+  return (a.title || "").localeCompare(b.title || "");
+}
+
+// TV shows: one heading per show and season, episodes in order.
+function showRows(list) {
+  const eps = list.filter((v) => v.kind === "episode").sort((a, b) =>
+    (a.show || "").localeCompare(b.show || "") || (a.season ?? 1e4) - (b.season ?? 1e4) ||
+    (a.episode ?? 1e4) - (b.episode ?? 1e4) || byTitle(a, b));
+  const out = [];
+  let heading = null;
+  for (const v of eps) {
+    const h = (v.show || "No show") + "|" + v.season;
+    if (h !== heading) {
+      heading = h;
+      out.push(el("li", { className: "group" }, v.show || "No show", " ",
+        el("span", { textContent: v.season != null ? "Season " + v.season : "No season" })));
+    }
+    out.push(row(v));
+  }
+  return out;
+}
+
+function render() {
+  document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.view === view));
+  let rows;
+  if (view === "shows") rows = showRows(videos);
+  else if (view === "movies") rows = videos.filter((v) => v.kind === "movie").sort(byTitle).map(row);
+  else if (view === "clips") rows = videos.filter((v) => v.kind === "clip").map(row);
+  else rows = videos.map(row);
+  if (!rows.length) rows = [el("li", { className: "group" }, el("span", { textContent: "Nothing here yet." }))];
+  $("list").replaceChildren(...rows);
+  const shows = [...new Set(videos.map((v) => v.show).filter(Boolean))].sort();
+  $("show-names").replaceChildren(...shows.map((s) => el("option", { value: s })));
+}
+
+$("tabs").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button");
+  if (!b) return;
+  view = b.dataset.view;
+  try { localStorage.setItem("view", view); } catch {}
+  render();
+});
+
 async function refresh() {
   try {
     const data = await api("GET", "/api/videos");
-    $("list").replaceChildren(...data.videos.map(row));
+    videos = data.videos;
+    if (editing === null) render();
     const d = data.disk;
     $("disk").textContent = `${d.free_gb} GB free of ${d.total_gb} GB · downloads stop below ${d.min_free_gb} GB`;
   } catch (e) {
