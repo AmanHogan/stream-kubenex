@@ -1,0 +1,6 @@
+fastapi==0.115.6
+uvicorn==0.32.1
+# yt-dlp breaks often when YouTube changes; rebuild the image to update it.
+# [default] pulls in yt-dlp-ejs, which YouTube now needs (together with deno).
+# [curl-cffi] adds browser TLS fingerprint impersonation (set IMPERSONATE to use it).
+yt-dlp[default,curl-cffi]>=2025.11.12

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="MainScene" extends="Scene">
+  <script type="text/brightscript" uri="pkg:/components/MainScene.brs" />
+  <children>
+    <Rectangle color="0x0A0A0AFF" width="1920" height="1080" />
+    <Label id="header" text="Stream Kubenex" translation="[96,48]" font="font:LargeBoldSystemFont" />
+    <Label id="status" text="Loading..." translation="[96,108]" font="font:SmallSystemFont" color="0xA3A3A3FF" />
+    <PosterGrid id="grid"
+      translation="[96,170]"
+      basePosterSize="[400,225]"
+      itemSpacing="[32,90]"
+      numColumns="4"
+      numRows="3"
+      caption1NumLines="1"
+      caption2NumLines="1"
+      posterDisplayMode="scaleToFit" />
+    <Video id="video" width="1920" height="1080" visible="false" />
+  </children>
+</component>

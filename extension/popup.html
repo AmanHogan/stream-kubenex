@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stream Kubenex</title>
+<style>
+  :root { --bg:#fff; --fg:#171717; --muted:#737373; --line:#e5e5e5; --accent:#2563eb; --bad:#dc2626; --ok:#16a34a; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#171717; --fg:#ededed; --muted:#a3a3a3; --line:#262626; --accent:#60a5fa; --bad:#f87171; --ok:#4ade80; }
+  }
+  body { margin:0; width:380px; background:var(--bg); color:var(--fg); font:13px/1.4 system-ui, sans-serif; }
+  header { display:flex; justify-content:space-between; align-items:center; padding:10px 12px; border-bottom:1px solid var(--line); }
+  h1 { font-size:14px; margin:0; }
+  a { color:var(--accent); }
+  ul { list-style:none; margin:0; padding:0; }
+  li { display:flex; gap:8px; align-items:center; padding:8px 12px; border-bottom:1px solid var(--line); }
+  .info { flex:1; min-width:0; }
+  .url { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .muted { color:var(--muted); font-size:12px; }
+  .tag { font-size:11px; font-weight:600; padding:1px 6px; border:1px solid var(--line); border-radius:4px; flex:none; }
+  button { padding:5px 10px; border:0; border-radius:6px; background:var(--accent); color:#fff; font:inherit; cursor:pointer; flex:none; }
+  button:disabled { opacity:.5; cursor:default; }
+  #msg { padding:8px 12px; min-height:18px; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); }
+  .empty { padding:12px; color:var(--muted); }
+</style>
+</head>
+<body>
+  <header><h1>Stream Kubenex</h1><a href="options.html" target="_blank">Settings</a></header>
+  <ul id="page"></ul>
+  <ul id="found"></ul>
+  <div id="msg"></div>
+  <script src="hls.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

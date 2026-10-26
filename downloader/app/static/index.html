@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stream Kubenex</title>
+<style>
+  :root { --bg:#fafafa; --fg:#171717; --muted:#737373; --card:#fff; --line:#e5e5e5; --accent:#2563eb; --bad:#dc2626; --ok:#16a34a; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0a0a0a; --fg:#ededed; --muted:#a3a3a3; --card:#171717; --line:#262626; --accent:#60a5fa; --bad:#f87171; --ok:#4ade80; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; }
+  main { max-width:860px; margin:0 auto; padding:24px 16px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .muted { color:var(--muted); font-size:13px; }
+  form { display:flex; gap:8px; margin:20px 0; }
+  input { flex:1; min-width:0; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--fg); font:inherit; }
+  button { padding:10px 14px; border:0; border-radius:8px; background:var(--accent); color:#fff; font:inherit; cursor:pointer; }
+  button.ghost { background:none; color:var(--muted); border:1px solid var(--line); padding:4px 10px; font-size:13px; }
+  .import { margin:-8px 0 12px; }
+  .import label { display:inline-block; color:var(--accent); border:1px solid var(--line); border-radius:8px; padding:6px 12px; font-size:13px; cursor:pointer; }
+  #msg { min-height:20px; font-size:13px; }
+  ul { list-style:none; padding:0; margin:0; }
+  li { display:flex; gap:12px; align-items:center; padding:12px; background:var(--card); border:1px solid var(--line); border-radius:10px; margin-bottom:8px; }
+  img, .ph { width:112px; height:63px; object-fit:cover; border-radius:6px; background:var(--line); flex:none; }
+  .info { flex:1; min-width:0; }
+  .title { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .bar { height:4px; background:var(--line); border-radius:2px; margin-top:6px; overflow:hidden; }
+  .bar > div { height:100%; background:var(--accent); }
+  .failed { color:var(--bad); } .ready { color:var(--ok); }
+  .actions { display:flex; gap:6px; flex:none; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Stream Kubenex</h1>
+  <div class="muted" id="disk">&nbsp;</div>
+  <form id="form">
+    <input id="url" type="url" placeholder="Paste a video URL" required autofocus>
+    <button>Download</button>
+  </form>
+  <div class="import">
+    <label for="file">Import video files from this computer…</label>
+    <input id="file" type="file" accept="video/*,.mkv,.ts,.mts" multiple hidden>
+  </div>
+  <div id="msg"></div>
+  <ul id="list"></ul>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+
+function el(tag, props = {}, ...kids) {
+  const e = Object.assign(document.createElement(tag), props);
+  e.append(...kids);
+  return e;
+}
+
+function fmtDuration(s) {
+  if (!s) return "";
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
+  return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(sec).padStart(2, "0");
+}
+
+// The API token lives only in this browser. Get it with the kubectl command in the README.
+function getToken() {
+  try { return localStorage.getItem("apiToken") || ""; } catch { return ""; }
+}
+
+function askToken() {
+  const t = prompt("API token (from the stream-api Secret):");
+  if (!t) return;
+  try { localStorage.setItem("apiToken", t.trim()); } catch {}
+  refresh();
+}
+
+async function api(method, path, body) {
+  const headers = { "X-Api-Token": getToken() };
+  if (body) headers["Content-Type"] = "application/json";
+  const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  if (!res.ok) {
+    const err = new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+    err.status = res.status;
+    throw err;
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+function row(v) {
+  const thumb = v.thumbnail ? el("img", { src: v.thumbnail, alt: "" }) : el("div", { className: "ph" });
+  let status = v.status;
+  const busy = v.status === "downloading" || v.status === "converting";
+  if (busy) status += " " + Math.round(v.progress * 100) + "%";
+  if (v.status === "converting") status += " (no H.264 on this site; converting with ffmpeg)";
+  if (v.status === "ready") status += " · " + (v.size_bytes / 1e9).toFixed(2) + " GB · " + fmtDuration(v.duration);
+  if (v.sniffed) status += " · from extension";
+  if (v.source === "upload") status += " · imported";
+  const info = el("div", { className: "info" },
+    el("div", { className: "title", textContent: v.title || v.url, title: v.url }),
+    el("div", { className: "muted " + v.status, textContent: status }),
+  );
+  if (busy) {
+    info.append(el("div", { className: "bar" }, el("div", { style: `width:${v.progress * 100}%` })));
+  }
+  if (v.error) info.append(el("div", { className: "muted failed", textContent: v.error }));
+
+  const actions = el("div", { className: "actions" });
+  if (v.status === "ready") actions.append(el("a", { href: v.url, target: "_blank", textContent: "Play" }));
+  // A failed import has no file left to retry; upload it again instead.
+  if (v.status === "failed" && v.source !== "upload") actions.append(el("button", { className: "ghost", textContent: "Retry",
+    onclick: () => api("POST", `/api/videos/${v.id}/retry`).then(refresh) }));
+  if (!busy) actions.append(el("button", { className: "ghost", textContent: "Delete",
+    onclick: () => confirm("Delete this video?") && api("DELETE", `/api/videos/${v.id}`).then(refresh) }));
+  return el("li", {}, thumb, info, actions);
+}
+
+async function refresh() {
+  try {
+    const data = await api("GET", "/api/videos");
+    $("list").replaceChildren(...data.videos.map(row));
+    const d = data.disk;
+    $("disk").textContent = `${d.free_gb} GB free of ${d.total_gb} GB · downloads stop below ${d.min_free_gb} GB`;
+  } catch (e) {
+    if (e.status === 401 || e.status === 503) {
+      $("disk").replaceChildren(e.message + " ",
+        el("button", { className: "ghost", textContent: "Set API token", onclick: askToken }));
+    } else {
+      $("disk").textContent = "Cannot reach server: " + e.message;
+    }
+  }
+}
+
+$("form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  try {
+    await api("POST", "/api/downloads", { url: $("url").value });
+    $("url").value = "";
+    $("msg").textContent = "Queued.";
+    refresh();
+  } catch (e) {
+    $("msg").textContent = "Error: " + e.message;
+  }
+});
+
+// XMLHttpRequest, not fetch: only XHR reports upload progress. The body is the raw
+// file, so the browser streams it without loading it into memory.
+function uploadOne(file) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/uploads?filename=" + encodeURIComponent(file.name));
+    xhr.setRequestHeader("X-Api-Token", getToken());
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) $("msg").textContent = `Uploading ${file.name}: ${Math.round(e.loaded / e.total * 100)}%`;
+    };
+    xhr.onload = () => {
+      if (xhr.status < 300) return resolve();
+      let detail = xhr.statusText;
+      try { detail = JSON.parse(xhr.responseText).detail || detail; } catch {}
+      reject(new Error(detail));
+    };
+    xhr.onerror = () => reject(new Error("network error"));
+    xhr.send(file);
+  });
+}
+
+let uploading = false;
+window.addEventListener("beforeunload", (ev) => { if (uploading) ev.preventDefault(); });
+
+$("file").addEventListener("change", async () => {
+  const files = [...$("file").files];
+  $("file").value = "";
+  uploading = true;
+  try {
+    for (const f of files) {
+      await uploadOne(f);
+      $("msg").textContent = `Uploaded ${f.name}. Processing…`;
+      refresh();
+    }
+  } catch (e) {
+    $("msg").textContent = "Import failed: " + e.message;
+  } finally {
+    uploading = false;
+  }
+});
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

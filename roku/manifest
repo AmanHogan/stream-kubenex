@@ -1,0 +1,11 @@
+title=Stream Kubenex
+major_version=0
+minor_version=1
+build_version=1
+ui_resolutions=fhd
+mm_icon_focus_hd=pkg:/images/icon_hd.png
+mm_icon_focus_sd=pkg:/images/icon_sd.png
+splash_color=#0A0A0A
+splash_min_time=0
+# Custom key, read by FeedTask.brs. LAN address only: the Roku cannot use Tailscale.
+server_url=http://192.168.4.247

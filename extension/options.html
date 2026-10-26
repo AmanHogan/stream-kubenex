@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stream Kubenex settings</title>
+<style>
+  :root { --bg:#fafafa; --fg:#171717; --muted:#737373; --line:#e5e5e5; --accent:#2563eb; --bad:#dc2626; --ok:#16a34a; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0a0a0a; --fg:#ededed; --muted:#a3a3a3; --line:#262626; --accent:#60a5fa; --bad:#f87171; --ok:#4ade80; }
+  }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; }
+  main { max-width:520px; margin:0 auto; padding:24px 16px; }
+  label { display:block; margin:16px 0 4px; font-weight:600; }
+  input { width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:transparent; color:var(--fg); font:inherit; }
+  .muted { color:var(--muted); font-size:13px; }
+  code { font-size:12px; }
+  button { margin-top:16px; padding:8px 14px; border:0; border-radius:8px; background:var(--accent); color:#fff; font:inherit; cursor:pointer; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Stream Kubenex settings</h1>
+  <form id="form">
+    <label for="server">Server</label>
+    <input id="server" type="url" placeholder="http://192.168.4.247" required>
+    <label for="token">API token</label>
+    <input id="token" type="password" autocomplete="off" required>
+    <div class="muted">Get it on the Mac with:<br>
+      <code>kubectl get secret stream-api -n stream -o jsonpath='{.data.token}' | base64 -d</code></div>
+    <button>Save</button>
+    <span id="msg"></span>
+  </form>
+</main>
+<script src="options.js"></script>
+</body>
+</html>
