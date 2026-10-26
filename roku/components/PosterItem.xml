@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- One card in a home screen row: thumbnail, title, and a grey second line. -->
+<component name="PosterItem" extends="Group">
+  <interface>
+    <field id="itemContent" type="node" onChange="onContent" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/PosterItem.brs" />
+  <children>
+    <!-- Shows through when a video has no thumbnail. -->
+    <Rectangle width="400" height="225" color="0x262626FF" />
+    <Poster id="poster" width="400" height="225" loadDisplayMode="scaleToFit" />
+    <Label id="title" translation="[0,236]" width="400" font="font:SmallBoldSystemFont" />
+    <Label id="sub" translation="[0,274]" width="400" font="font:SmallestSystemFont" color="0xA3A3A3FF" />
+  </children>
+</component>

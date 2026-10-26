@@ -25,7 +25,17 @@ Roku channel ◄── http://192.168.4.247 ── nginx (same pod): /media/* fr
 | Import your own files | Web form → **Import video files from this computer…** |
 | Browser extension | `extension/` (see below) |
 | Add by curl | `curl -X POST http://192.168.4.247/api/downloads -H "X-Api-Token: $TOKEN" -H 'Content-Type: application/json' -d '{"url":"<url>"}'` |
-| Roku feed | http://192.168.4.247/api/feed (no token) |
+| Roku library | http://192.168.4.247/api/library (no token). `/api/feed` is the old flat list, kept for older channel builds. |
+
+## Library: movies, TV shows, clips
+
+Each video is a **movie**, a **TV episode** (show, season, episode) or a **clip**.
+
+- Imported files are guessed from the file name: `Show.Name.S02E05.Title.mkv`, `Show 2x05`,
+  `Show Season 2 Episode 5` become episodes; `Movie Name (2010).mp4` or `Movie.Name.2010.1080p.mkv`
+  become movies; anything else becomes a movie with the file name as title.
+- Downloads become episodes when the site gives yt-dlp series data, otherwise clips.
+- Fix anything with **Edit** on the web form. The **TV shows** view groups by show and season.
 
 Get the token on the Mac:
 
@@ -104,8 +114,12 @@ git push ──► Jenkins (polls every 3 min) ──► kaniko builds downloade
 1. Enable Developer Mode on the Roku: Home ×3, Up ×2, Right, Left, Right, Left, Right. Set a password.
 2. `ROKU_IP=<roku ip> scripts/roku-sideload.sh` (it prompts for the dev password)
    (or run `scripts/roku-package.sh` and upload `build/stream-kubenex-roku.zip` at `http://<roku ip>`).
-3. Remote: OK plays, Back returns to the grid, `*` refreshes the list.
-4. Debug output: `nc <roku ip> 8085`.
+3. Home screen rows: Recently added, TV Shows, Movies, Clips. OK on a show opens its seasons
+   (left) and episodes (right); OK on a video plays it. Back goes back one screen. `*` on the
+   home screen refreshes.
+4. Playback resumes where you stopped (saved on the Roku every 10 seconds; not within the
+   first 30 seconds or the last minute).
+5. Debug output: `nc <roku ip> 8085`.
 
 Check the code without a Roku: `npx -p brighterscript bsc --rootDir roku --createPackage false`.
 

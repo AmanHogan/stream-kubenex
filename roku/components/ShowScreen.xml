@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- One TV show: seasons on the left, that season's episodes on the right. -->
+<component name="ShowScreen" extends="Group">
+  <interface>
+    <!-- One entry of library.shows. Setting it opens the screen. -->
+    <field id="show" type="assocarray" onChange="onShow" />
+    <!-- Out: the episode to play (id, url, title). -->
+    <field id="playVideo" type="assocarray" alwaysNotify="true" />
+    <!-- Out: Back was pressed. -->
+    <field id="closed" type="boolean" alwaysNotify="true" />
+    <function name="focusEpisodes" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/ShowScreen.brs" />
+  <script type="text/brightscript" uri="pkg:/components/util.brs" />
+  <children>
+    <Rectangle color="0x0A0A0AFF" width="1920" height="1080" />
+    <Label id="name" translation="[96,48]" font="font:LargeBoldSystemFont" />
+    <Label id="hint" translation="[96,108]" font="font:SmallSystemFont" color="0xA3A3A3FF"
+      text="Left and Right move between seasons and episodes  -  OK plays  -  Back returns" />
+    <LabelList id="seasons" translation="[96,180]" itemSize="[320,64]" numRows="12" />
+    <PosterGrid id="episodes"
+      translation="[480,180]"
+      basePosterSize="[352,198]"
+      itemSpacing="[28,84]"
+      numColumns="3"
+      numRows="3"
+      caption1NumLines="1"
+      caption2NumLines="1"
+      posterDisplayMode="scaleToFit" />
+  </children>
+</component>

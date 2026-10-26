@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Loads /api/library off the render thread. -->
+<component name="LibraryTask" extends="Task">
+  <interface>
+    <!-- The raw JSON, kept so the show screen can read seasons and episodes. -->
+    <field id="library" type="assocarray" />
+    <!-- Home screen rows, ready for the RowList. -->
+    <field id="rows" type="node" />
+    <field id="error" type="string" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/LibraryTask.brs" />
+  <script type="text/brightscript" uri="pkg:/components/util.brs" />
+</component>

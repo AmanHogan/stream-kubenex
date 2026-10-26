@@ -5,15 +5,21 @@
     <Rectangle color="0x0A0A0AFF" width="1920" height="1080" />
     <Label id="header" text="Stream Kubenex" translation="[96,48]" font="font:LargeBoldSystemFont" />
     <Label id="status" text="Loading..." translation="[96,108]" font="font:SmallSystemFont" color="0xA3A3A3FF" />
-    <PosterGrid id="grid"
+    <!-- Home: Recently added, TV Shows, Movies, Clips. Empty rows are left out. -->
+    <RowList id="rows"
       translation="[96,170]"
-      basePosterSize="[400,225]"
-      itemSpacing="[32,90]"
-      numColumns="4"
-      numRows="3"
-      caption1NumLines="1"
-      caption2NumLines="1"
-      posterDisplayMode="scaleToFit" />
+      itemComponentName="PosterItem"
+      numRows="2"
+      itemSize="[1728,400]"
+      itemSpacing="[0,40]"
+      rowItemSize="[[400,310]]"
+      rowItemSpacing="[[32,0]]"
+      showRowLabel="[true]"
+      rowLabelOffset="[[0,12]]"
+      rowLabelFont="font:MediumBoldSystemFont"
+      rowFocusAnimationStyle="floatingFocus"
+      vertFocusAnimationStyle="floatingFocus" />
+    <ShowScreen id="showScreen" visible="false" />
     <Video id="video" width="1920" height="1080" visible="false" />
   </children>
 </component>
