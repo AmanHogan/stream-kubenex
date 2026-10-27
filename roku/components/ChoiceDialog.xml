@@ -14,8 +14,8 @@
   <script type="text/brightscript" uri="pkg:/components/ChoiceDialog.brs" />
   <children>
     <Rectangle width="1920" height="1080" color="0x000000B0" />
-    <Rectangle id="panel" translation="[560,280]" width="800" height="520" color="0x1C1C1CFF" />
-    <Label id="titleLabel" translation="[600,316]" width="720" font="font:MediumBoldSystemFont" wrap="true" maxLines="2" />
-    <LabelList id="list" translation="[600,420]" itemSize="[720,64]" numRows="5" />
+    <Rectangle id="panel" translation="[410,250]" width="1100" height="580" color="0x1C1C1CFF" />
+    <Label id="titleLabel" translation="[450,286]" width="1020" font="font:MediumBoldSystemFont" wrap="true" maxLines="2" />
+    <LabelList id="list" translation="[450,410]" itemSize="[1020,64]" numRows="6" />
   </children>
 </component>

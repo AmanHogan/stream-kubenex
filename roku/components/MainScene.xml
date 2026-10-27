@@ -27,11 +27,11 @@
     <Group id="skipIntro" translation="[1480,880]" visible="false">
       <Button id="skipButton" text="Skip intro" minWidth="320" showFocusFootprint="true" />
     </Group>
-    <Group id="upNext" translation="[1160,740]" visible="false">
-      <Rectangle width="680" height="240" color="0x000000D9" />
-      <Label id="upNextTitle" translation="[28,24]" width="624" font="font:MediumBoldSystemFont" />
-      <Label id="upNextCount" translation="[28,78]" width="624" font="font:SmallSystemFont" color="0xA3A3A3FF" />
-      <Button id="upNextButton" translation="[28,140]" text="Play now" minWidth="280" showFocusFootprint="true" />
+    <Group id="upNext" translation="[960,700]" visible="false">
+      <Rectangle width="900" height="300" color="0x000000D9" />
+      <Label id="upNextTitle" translation="[32,24]" width="836" wrap="true" maxLines="2" font="font:MediumBoldSystemFont" />
+      <Label id="upNextCount" translation="[32,124]" width="836" wrap="true" maxLines="2" font="font:SmallSystemFont" color="0xA3A3A3FF" />
+      <Button id="upNextButton" translation="[32,200]" text="Play now" minWidth="280" showFocusFootprint="true" />
     </Group>
     <Timer id="countdown" repeat="true" duration="1" />
 

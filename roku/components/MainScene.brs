@@ -221,7 +221,7 @@ sub showUpNext()
 end sub
 
 sub updateCountdownText()
-    m.upNextCount.text = "Starting in " + m.countdownLeft.ToStr() + " seconds  -  Back keeps watching"
+    m.upNextCount.text = "Starts in " + m.countdownLeft.ToStr() + " s  -  Back to keep watching"
 end sub
 
 sub onCountdown()
@@ -398,10 +398,10 @@ sub openPlayerMenu()
     if v = invalid then return
     choices = []
     if v.next_id <> invalid and m.videos.DoesExist(v.next_id)
-        choices.Push({ label: "Next episode: " + episodeLabel(m.videos[v.next_id]), action: "next", id: v.next_id })
+        choices.Push({ label: "Next: " + episodeLabel(m.videos[v.next_id]), action: "next", id: v.next_id })
     end if
     if v.prev_id <> invalid and m.videos.DoesExist(v.prev_id)
-        choices.Push({ label: "Previous episode: " + episodeLabel(m.videos[v.prev_id]), action: "previous", id: v.prev_id })
+        choices.Push({ label: "Previous: " + episodeLabel(m.videos[v.prev_id]), action: "previous", id: v.prev_id })
     end if
     choices.Push({ label: "Play from beginning", action: "startover" })
     m.video.control = "pause"
