@@ -37,6 +37,10 @@
   .kind { display:inline-block; font-size:11px; font-weight:600; padding:0 6px; border:1px solid var(--line); border-radius:4px; margin-right:6px; }
   li.group { background:none; border:0; padding:14px 2px 4px; margin:0; font-weight:600; }
   li.group span { color:var(--muted); font-weight:400; font-size:13px; }
+  li.group.show { font-size:17px; padding-top:22px; }
+  li.group button { padding:2px 8px; font-size:12px; }
+  .seen { color:var(--ok); }
+  .edit .wide { grid-column:1 / -1; }
   .edit { display:grid; grid-template-columns:repeat(auto-fit, minmax(120px, 1fr)); gap:8px; flex:1; }
   .edit label { display:flex; flex-direction:column; font-size:12px; color:var(--muted); gap:2px; }
   .edit label.wide { grid-column:1 / -1; }
@@ -107,7 +111,20 @@ async function api(method, path, body) {
   return res.status === 204 ? null : res.json();
 }
 
-// "TV" / "Movie" / "Clip" badge plus where the video sits in the library.
+// Marker times are typed as m:ss (or plain seconds). "" means not set.
+function parseTime(text) {
+  text = text.trim();
+  if (!text) return null;
+  const m = /^(?:(\d+):)?(\d+)$/.exec(text);
+  if (!m) throw new Error(`"${text}" is not a time. Use m:ss, like 1:30.`);
+  return Number(m[1] || 0) * 60 + Number(m[2]);
+}
+
+function fmtTime(s) {
+  return s == null ? "" : Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+}
+
+// "TV" / "Movie" / "Clip" badge, where the video sits in the library, and watch state.
 function libraryLine(v) {
   let text = "";
   if (v.kind === "episode") {
@@ -117,7 +134,14 @@ function libraryLine(v) {
     text = String(v.year);
   }
   const badge = { episode: "TV", movie: "Movie", clip: "Clip" }[v.kind] || "Clip";
-  return el("div", { className: "muted" }, el("span", { className: "kind", textContent: badge }), text);
+  const line = el("div", { className: "muted" }, el("span", { className: "kind", textContent: badge }), text);
+  if (v.watched) line.append(el("span", { className: "seen", textContent: " ✓ Watched" }));
+  else if (v.position && v.duration) line.append(` · ${Math.max(1, Math.round((v.duration - v.position) / 60))} min left`);
+  return line;
+}
+
+function setWatched(ids, watched) {
+  return api("POST", "/api/watched", { ids, watched }).then(refresh);
 }
 
 function row(v) {
@@ -141,7 +165,11 @@ function row(v) {
   if (v.error) info.append(el("div", { className: "muted failed", textContent: v.error }));
 
   const actions = el("div", { className: "actions" });
-  if (v.status === "ready") actions.append(el("a", { href: v.url, target: "_blank", textContent: "Play" }));
+  if (v.status === "ready") {
+    actions.append(el("a", { href: v.url, target: "_blank", textContent: "Play" }));
+    actions.append(el("button", { className: "ghost", textContent: v.watched ? "Unwatch" : "Watched",
+      title: v.watched ? "Mark as not watched" : "Mark as watched", onclick: () => setWatched([v.id], !v.watched) }));
+  }
   // A failed import has no file left to retry; upload it again instead.
   if (v.status === "failed" && v.source !== "upload") actions.append(el("button", { className: "ghost", textContent: "Retry",
     onclick: () => api("POST", `/api/videos/${v.id}/retry`).then(refresh) }));
@@ -174,8 +202,14 @@ function editRow(v) {
   const season = num(v.season), episode = num(v.episode);
   const year = el("input", { type: "number", min: 1880, max: 2100, value: v.year ?? "" });
   const err = el("span", { className: "muted failed" });
+  // Per-episode overrides. Empty = use the show's markers, shown as the placeholder.
+  const sm = shows[v.show] || {};
+  const time = (value, fallback) => el("input", { value: fmtTime(value), placeholder: fallback == null ? "m:ss" : "show: " + fmtTime(fallback) });
+  const introStart = time(v.intro_start, sm.intro_start), introEnd = time(v.intro_end, sm.intro_end);
+  const credits = time(v.credits_before_end, sm.credits_before_end);
 
-  const tvOnly = [field("Show", show, true), field("Season", season), field("Episode", episode)];
+  const tvOnly = [field("Show", show, true), field("Season", season), field("Episode", episode),
+    field("Intro starts", introStart), field("Intro ends", introEnd), field("Credits (before end)", credits)];
   const movieOnly = [field("Year", year)];
   function sync() {
     tvOnly.forEach((f) => (f.hidden = kind.value !== "episode"));
@@ -190,6 +224,8 @@ function editRow(v) {
       await api("PATCH", `/api/videos/${v.id}`, {
         kind: kind.value, title: title.value,
         show: show.value || null, season: toInt(season), episode: toInt(episode), year: toInt(year),
+        intro_start: parseTime(introStart.value), intro_end: parseTime(introEnd.value),
+        credits_before_end: parseTime(credits.value),
       });
       editing = null;
       refresh();
@@ -214,24 +250,75 @@ function editRow(v) {
 let view = "all";
 try { view = localStorage.getItem("view") || "all"; } catch {}
 let videos = [];
+let shows = {}; // show name -> intro/credits markers
 
 function byTitle(a, b) {
   return (a.title || "").localeCompare(b.title || "");
 }
 
-// TV shows: one heading per show and season, episodes in order.
+// Intro and credits markers for a whole show. Same pause-the-redraw rule as editing.
+let editingShow = null;
+
+function showMarkersRow(name) {
+  const sm = shows[name] || {};
+  const introStart = el("input", { value: fmtTime(sm.intro_start), placeholder: "e.g. 1:30" });
+  const introEnd = el("input", { value: fmtTime(sm.intro_end), placeholder: "e.g. 3:00" });
+  const credits = el("input", { value: fmtTime(sm.credits_before_end), placeholder: "default 2:00" });
+  const err = el("span", { className: "muted failed" });
+  const close = () => { editingShow = null; render(); };
+  async function save() {
+    try {
+      await api("PUT", `/api/shows/${encodeURIComponent(name)}/markers`, {
+        intro_start: parseTime(introStart.value), intro_end: parseTime(introEnd.value),
+        credits_before_end: parseTime(credits.value),
+      });
+      editingShow = null;
+      refresh();
+    } catch (e) {
+      err.textContent = e.message;
+    }
+  }
+  const form = el("div", { className: "edit" },
+    el("div", { className: "muted wide", textContent:
+      `Every ${name} episode uses these unless the episode's Edit sets its own. ` +
+      "Credits = how long before the end they start; there the episode counts as watched and Up Next appears." }),
+    field("Intro starts", introStart), field("Intro ends", introEnd), field("Credits (before end)", credits),
+    el("div", { className: "buttons" },
+      el("button", { textContent: "Save", onclick: save }),
+      el("button", { className: "ghost", textContent: "Cancel", onclick: close }), err));
+  form.addEventListener("keydown", (ev) => { if (ev.key === "Enter") save(); if (ev.key === "Escape") close(); });
+  return el("li", {}, form);
+}
+
+// TV shows: a heading per show (with its markers), a sub-heading per season
+// (with mark-season buttons), then the episodes in order.
 function showRows(list) {
   const eps = list.filter((v) => v.kind === "episode").sort((a, b) =>
     (a.show || "").localeCompare(b.show || "") || (a.season ?? 1e4) - (b.season ?? 1e4) ||
     (a.episode ?? 1e4) - (b.episode ?? 1e4) || byTitle(a, b));
   const out = [];
-  let heading = null;
+  let curShow = null, curSeason = null;
   for (const v of eps) {
-    const h = (v.show || "No show") + "|" + v.season;
-    if (h !== heading) {
-      heading = h;
-      out.push(el("li", { className: "group" }, v.show || "No show", " ",
-        el("span", { textContent: v.season != null ? "Season " + v.season : "No season" })));
+    const name = v.show || "No show";
+    if (name !== curShow) {
+      curShow = name;
+      curSeason = undefined;
+      const sm = shows[name] || {};
+      const summary = [sm.intro_start != null ? `intro ${fmtTime(sm.intro_start)}–${fmtTime(sm.intro_end)}` : "",
+        sm.credits_before_end != null ? `credits ${fmtTime(sm.credits_before_end)} before end` : ""].filter(Boolean).join(" · ");
+      out.push(el("li", { className: "group show" }, name, " ",
+        el("span", { textContent: summary || "no intro/credits markers" }), " ",
+        v.show ? el("button", { className: "ghost", textContent: "Intro & credits",
+          onclick: () => { editingShow = name; render(); } }) : ""));
+      if (editingShow === name) out.push(showMarkersRow(name));
+    }
+    if (v.season !== curSeason) {
+      curSeason = v.season;
+      const ids = eps.filter((e) => (e.show || "No show") === name && e.season === v.season && e.status === "ready").map((e) => e.id);
+      out.push(el("li", { className: "group" },
+        el("span", { textContent: v.season != null ? "Season " + v.season : "No season" }), " ",
+        el("button", { className: "ghost", textContent: "Season watched", onclick: () => setWatched(ids, true) }), " ",
+        el("button", { className: "ghost", textContent: "Season unwatched", onclick: () => setWatched(ids, false) })));
     }
     out.push(row(v));
   }
@@ -263,7 +350,8 @@ async function refresh() {
   try {
     const data = await api("GET", "/api/videos");
     videos = data.videos;
-    if (editing === null) render();
+    shows = data.shows || {};
+    if (editing === null && editingShow === null) render();
     const d = data.disk;
     $("disk").textContent = `${d.free_gb} GB free of ${d.total_gb} GB · downloads stop below ${d.min_free_gb} GB`;
   } catch (e) {

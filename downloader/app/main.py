@@ -38,7 +38,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Res
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import library
+from . import library, playback
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 MEDIA_DIR = DATA_DIR / "media"
@@ -85,7 +85,23 @@ CREATE TABLE IF NOT EXISTS videos (
     show        TEXT,                       -- episodes only
     season      INTEGER,
     episode     INTEGER,
-    year        INTEGER
+    year        INTEGER,
+    position    INTEGER NOT NULL DEFAULT 0, -- seconds; 0 = nothing to resume
+    watched     INTEGER NOT NULL DEFAULT 0,
+    last_watched_at REAL,
+    -- Per-episode overrides of the show's markers (seconds; NULL = use the show's).
+    intro_start INTEGER,
+    intro_end   INTEGER,
+    credits_before_end INTEGER
+)
+"""
+# Intro and credits markers, set once per show on the web form.
+SHOWS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS shows (
+    name        TEXT PRIMARY KEY,
+    intro_start INTEGER,
+    intro_end   INTEGER,
+    credits_before_end INTEGER
 )
 """
 # Columns added after the first release. Older databases get them at startup.
@@ -100,6 +116,12 @@ ADDED_COLUMNS = {
     "season": "INTEGER",
     "episode": "INTEGER",
     "year": "INTEGER",
+    "position": "INTEGER NOT NULL DEFAULT 0",
+    "watched": "INTEGER NOT NULL DEFAULT 0",
+    "last_watched_at": "REAL",
+    "intro_start": "INTEGER",
+    "intro_end": "INTEGER",
+    "credits_before_end": "INTEGER",
 }
 
 app = FastAPI(title="stream-kubenex")
@@ -352,6 +374,7 @@ def startup() -> None:
     MEDIA_DIR.mkdir(parents=True, exist_ok=True)
     with db() as conn:
         conn.execute(SCHEMA)
+        conn.execute(SHOWS_SCHEMA)
         have = {r["name"] for r in conn.execute("PRAGMA table_info(videos)")}
         for col, sql_type in ADDED_COLUMNS.items():
             if col not in have:
@@ -426,6 +449,10 @@ class DownloadRequest(BaseModel):
     sniffed: bool = False
 
 
+def show_markers(conn: sqlite3.Connection) -> dict[str, dict]:
+    return {r["name"]: dict(r) for r in conn.execute("SELECT * FROM shows")}
+
+
 def media_urls(vid: str) -> dict:
     thumb = MEDIA_DIR / f"{vid}.jpg"
     return {
@@ -497,12 +524,14 @@ async def upload_file(request: Request, filename: str = Query(min_length=1, max_
 def list_videos() -> dict:
     with db() as conn:
         rows = [dict(r) for r in conn.execute("SELECT * FROM videos ORDER BY created_at DESC")]
+        shows = show_markers(conn)
     for r in rows:
         if r["status"] == "ready":
             r.update(media_urls(r["id"]))
     usage = shutil.disk_usage(MEDIA_DIR)
     return {
         "videos": rows,
+        "shows": shows,
         "disk": {
             "free_gb": round(usage.free / 1e9, 1),
             "total_gb": round(usage.total / 1e9, 1),
@@ -535,6 +564,26 @@ class VideoUpdate(BaseModel):
     season: int | None = Field(default=None, ge=0, le=999)
     episode: int | None = Field(default=None, ge=0, le=9999)
     year: int | None = Field(default=None, ge=1880, le=2100)
+    # Per-episode overrides of the show's markers, in seconds. null = use the show's.
+    intro_start: int | None = Field(default=None, ge=0, le=36000)
+    intro_end: int | None = Field(default=None, ge=0, le=36000)
+    credits_before_end: int | None = Field(default=None, ge=0, le=36000)
+
+
+class Markers(BaseModel):
+    """Intro and credits markers in seconds. All null = none."""
+    model_config = ConfigDict(extra="forbid")
+
+    intro_start: int | None = Field(default=None, ge=0, le=36000)
+    intro_end: int | None = Field(default=None, ge=0, le=36000)
+    credits_before_end: int | None = Field(default=None, ge=0, le=36000)
+
+
+def check_intro(start: int | None, end: int | None) -> None:
+    if (start is None) != (end is None):
+        raise HTTPException(400, "Give both the intro start and end, or neither.")
+    if start is not None and start >= end:
+        raise HTTPException(400, "The intro must end after it starts.")
 
 
 @app.patch("/api/videos/{vid}", dependencies=[Depends(require_token)])
@@ -546,9 +595,10 @@ def update_video(vid: str, req: VideoUpdate) -> dict:
     if "title" in changes and not changes["title"]:
         raise HTTPException(400, "Title cannot be empty.")
     with db() as conn:
-        row = conn.execute("SELECT kind, show FROM videos WHERE id = ?", (vid,)).fetchone()
+        row = conn.execute("SELECT kind, show, intro_start, intro_end FROM videos WHERE id = ?", (vid,)).fetchone()
         if row is None:
             raise HTTPException(404, "No video with that id.")
+        check_intro(changes.get("intro_start", row["intro_start"]), changes.get("intro_end", row["intro_end"]))
         kind = changes.get("kind") or row["kind"]
         if kind == "episode" and not changes.get("show", row["show"]):
             raise HTTPException(400, "An episode needs a show name.")
@@ -577,6 +627,66 @@ def delete_video(vid: str) -> Response:
     return Response(status_code=204)
 
 
+@app.put("/api/shows/{name}/markers", dependencies=[Depends(require_token)])
+def set_show_markers(name: str, req: Markers) -> dict:
+    """Intro and credits markers for every episode of a show (episodes may override)."""
+    check_intro(req.intro_start, req.intro_end)
+    with db() as conn:
+        if not conn.execute("SELECT 1 FROM videos WHERE show = ? LIMIT 1", (name,)).fetchone():
+            raise HTTPException(404, "No show with that name.")
+        conn.execute(
+            "INSERT INTO shows (name, intro_start, intro_end, credits_before_end) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(name) DO UPDATE SET intro_start = excluded.intro_start, "
+            "intro_end = excluded.intro_end, credits_before_end = excluded.credits_before_end",
+            (name, req.intro_start, req.intro_end, req.credits_before_end),
+        )
+    return {"name": name, **req.model_dump()}
+
+
+# --- watch progress -----------------------------------------------------------
+# No token on these two: the Roku cannot keep a secret (its code ships in the
+# channel zip), and they only change watch state, never files. LAN only.
+
+class Progress(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    position: int = Field(ge=0, le=86400)
+
+
+@app.post("/api/progress/{vid}")
+def report_progress(vid: str, req: Progress) -> dict:
+    """The player reports where it is. Past the credits marker the video counts as watched."""
+    with db() as conn:
+        row = conn.execute("SELECT duration, show, credits_before_end, intro_start, intro_end FROM videos "
+                           "WHERE id = ? AND status = 'ready'", (vid,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "No ready video with that id.")
+        m = playback.markers(dict(row), show_markers(conn).get(row["show"] or ""))
+        changes = playback.progress_update(row["duration"], m["credits_before_end"], req.position)
+        cols = ", ".join(f"{k} = ?" for k in changes)
+        conn.execute(f"UPDATE videos SET {cols} WHERE id = ?", (*changes.values(), vid))
+    return {"id": vid, "position": changes["position"], "watched": bool(changes.get("watched"))}
+
+
+class WatchedRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ids: list[str] = Field(min_length=1, max_length=5000)
+    watched: bool
+
+
+@app.post("/api/watched")
+def set_watched(req: WatchedRequest) -> dict:
+    """Mark videos watched or unwatched (one episode, or a whole season at once).
+    Both clear the resume position; unwatched also drops it from Continue Watching."""
+    marks = ",".join("?" * len(req.ids))
+    last = time.time() if req.watched else None
+    with db() as conn:
+        cur = conn.execute(f"UPDATE videos SET watched = ?, position = 0, last_watched_at = ? WHERE id IN ({marks})",
+                           (int(req.watched), last, *req.ids))
+    return {"updated": cur.rowcount, "watched": req.watched}
+
+
 @app.get("/api/feed")
 def feed() -> dict:
     """The Roku channel reads this. Only ready videos, newest first. No token: the
@@ -591,14 +701,18 @@ def feed() -> dict:
 
 @app.get("/api/library")
 def library_feed() -> dict:
-    """The Roku home screen: recent videos, TV shows (with seasons), movies and clips.
-    Open like /api/feed, and for the same reason."""
+    """The Roku home screen: Continue Watching, recent videos, TV shows (with seasons),
+    movies and clips. Every video carries its progress, markers and next/previous
+    episode. Open like /api/feed, and for the same reason."""
     with db() as conn:
         rows = conn.execute(
-            "SELECT id, title, uploader, duration, description, kind, show, season, episode, year "
+            "SELECT id, title, uploader, duration, description, kind, show, season, episode, year, "
+            "position, watched, last_watched_at, intro_start, intro_end, credits_before_end "
             "FROM videos WHERE status = 'ready' ORDER BY created_at DESC"
         ).fetchall()
-    return library.group([{**dict(r), **media_urls(r["id"])} for r in rows])
+        shows = show_markers(conn)
+    videos = playback.enrich([{**dict(r), **media_urls(r["id"])} for r in rows], shows)
+    return {"continue": playback.continue_watching(videos), **library.group(videos)}
 
 
 @app.get("/healthz")
