@@ -114,12 +114,30 @@ git push ──► Jenkins (polls every 3 min) ──► kaniko builds downloade
 1. Enable Developer Mode on the Roku: Home ×3, Up ×2, Right, Left, Right, Left, Right. Set a password.
 2. `ROKU_IP=<roku ip> scripts/roku-sideload.sh` (it prompts for the dev password)
    (or run `scripts/roku-package.sh` and upload `build/stream-kubenex-roku.zip` at `http://<roku ip>`).
-3. Home screen rows: Recently added, TV Shows, Movies, Clips. OK on a show opens its seasons
-   (left) and episodes (right); OK on a video plays it. Back goes back one screen. `*` on the
-   home screen refreshes.
-4. Playback resumes where you stopped (saved on the Roku every 10 seconds; not within the
-   first 30 seconds or the last minute).
-5. Debug output: `nc <roku ip> 8085`.
+3. Home screen rows: Continue Watching, Recently added, TV Shows, Movies, Clips. OK on a show
+   opens its seasons (left) and episodes (right); OK on a video plays it (part-watched: Resume
+   or Play from beginning). Back goes back one screen. Cards show a progress bar or "Watched".
+4. `*` opens a menu: on a video, resume / play from beginning / mark watched or not; on a show
+   or a season, mark all watched or not; on the home screen, Refresh library. While playing:
+   next episode, previous episode, play from beginning.
+5. In the player: **Skip intro** appears during the intro (OK skips it). At the credits the
+   episode counts as watched and **Up next** counts down 10 s (OK plays now, Back keeps watching).
+6. Debug output: `nc <roku ip> 8085`.
+
+## Watch progress
+
+The Roku reports the position to the server every 15 seconds and on stop
+(`POST /api/progress/{id}`), so progress, Continue Watching and Watched marks are the same on
+every device and on the web form. A video counts as **watched** when it reaches the credits:
+
+- the show's **credits** marker (web form → TV shows → **Intro & credits**), or the episode's
+  own override (Edit), given as time before the end;
+- otherwise the last 2 minutes (10% for videos under 20 minutes).
+
+The **intro** marker (start and end) drives the Skip intro button. Set it once per show; an
+episode's Edit can override it. Stopping in the first 30 seconds leaves nothing to resume.
+`POST /api/progress` and `/api/watched` need no token, like the feed: the Roku cannot keep a
+secret, and they change watch state only.
 
 Check the code without a Roku: `npx -p brighterscript bsc --rootDir roku --createPackage false`.
 

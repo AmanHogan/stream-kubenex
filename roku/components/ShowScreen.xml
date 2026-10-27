@@ -2,13 +2,16 @@
 <!-- One TV show: seasons on the left, that season's episodes on the right. -->
 <component name="ShowScreen" extends="Group">
   <interface>
-    <!-- One entry of library.shows. Setting it opens the screen. -->
+    <!-- One entry of library.shows. Setting it opens the screen; setting the same
+         show again (after a library refresh) keeps the season and episode in focus. -->
     <field id="show" type="assocarray" onChange="onShow" />
-    <!-- Out: the episode to play (id, url, title). -->
-    <field id="playVideo" type="assocarray" alwaysNotify="true" />
+    <!-- Out: id of the episode picked with OK. -->
+    <field id="selectedVideoId" type="string" alwaysNotify="true" />
+    <!-- Out: * was pressed. { kind: "episode", id } or { kind: "season", ids, label }. -->
+    <field id="menuRequest" type="assocarray" alwaysNotify="true" />
     <!-- Out: Back was pressed. -->
     <field id="closed" type="boolean" alwaysNotify="true" />
-    <function name="focusEpisodes" />
+    <function name="restoreFocus" />
   </interface>
   <script type="text/brightscript" uri="pkg:/components/ShowScreen.brs" />
   <script type="text/brightscript" uri="pkg:/components/util.brs" />
@@ -16,7 +19,7 @@
     <Rectangle color="0x0A0A0AFF" width="1920" height="1080" />
     <Label id="name" translation="[96,48]" font="font:LargeBoldSystemFont" />
     <Label id="hint" translation="[96,108]" font="font:SmallSystemFont" color="0xA3A3A3FF"
-      text="Left and Right move between seasons and episodes  -  OK plays  -  Back returns" />
+      text="Left and Right move between seasons and episodes  -  OK plays  -  * for more  -  Back returns" />
     <LabelList id="seasons" translation="[96,180]" itemSize="[320,64]" numRows="12" />
     <PosterGrid id="episodes"
       translation="[480,180]"

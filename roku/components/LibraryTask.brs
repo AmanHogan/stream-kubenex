@@ -30,11 +30,29 @@ sub load()
     end if
 
     root = CreateObject("roSGNode", "ContentNode")
+    addVideoRow(root, "Continue Watching", json["continue"])
     addVideoRow(root, "Recently added", json.recent)
     addShowRow(root, json.shows)
     addVideoRow(root, "Movies", json.movies)
     addVideoRow(root, "Clips", json.clips)
+
+    ' Every video by id, for resume, next/previous episode and the menus.
+    videos = {}
+    for each list in [json.recent, json.movies, json.clips]
+        for each v in list
+            videos[v.id] = v
+        end for
+    end for
+    for each s in json.shows
+        for each season in s.seasons
+            for each v in season.episodes
+                videos[v.id] = v
+            end for
+        end for
+    end for
+
     m.top.library = json
+    m.top.videos = videos
     m.top.rows = root
 end sub
 
@@ -57,7 +75,7 @@ sub addShowRow(root as Object, shows as Object)
     for i = 0 to shows.Count() - 1
         s = shows[i]
         item = row.createChild("ContentNode")
-        item.addFields({ itemType: "show", showIndex: i, videoId: "" })
+        item.addFields({ itemType: "show", showIndex: i, videoId: "", progressPos: 0, lengthSec: 0, isWatched: false })
         item.title = s.name
         item.HDPOSTERURL = s.thumbnail
         count = s.episode_count

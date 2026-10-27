@@ -4,6 +4,8 @@
   <interface>
     <!-- The raw JSON, kept so the show screen can read seasons and episodes. -->
     <field id="library" type="assocarray" />
+    <!-- Every ready video by id. -->
+    <field id="videos" type="assocarray" />
     <!-- Home screen rows, ready for the RowList. -->
     <field id="rows" type="node" />
     <field id="error" type="string" />

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Sends watch progress and watched marks to the server, one POST at a time,
+     off the render thread. Runs for the life of the channel. -->
+<component name="ApiTask" extends="Task">
+  <interface>
+    <!-- In: { path: "/api/...", body: {...} }. Each set queues one POST. -->
+    <field id="request" type="assocarray" alwaysNotify="true" />
+    <!-- Out: counts finished requests (success or not), so callers know when to reload. -->
+    <field id="completed" type="integer" alwaysNotify="true" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/ApiTask.brs" />
+</component>

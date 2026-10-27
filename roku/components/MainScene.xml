@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <component name="MainScene" extends="Scene">
   <script type="text/brightscript" uri="pkg:/components/MainScene.brs" />
+  <script type="text/brightscript" uri="pkg:/components/util.brs" />
   <children>
     <Rectangle color="0x0A0A0AFF" width="1920" height="1080" />
     <Label id="header" text="Stream Kubenex" translation="[96,48]" font="font:LargeBoldSystemFont" />
     <Label id="status" text="Loading..." translation="[96,108]" font="font:SmallSystemFont" color="0xA3A3A3FF" />
-    <!-- Home: Recently added, TV Shows, Movies, Clips. Empty rows are left out. -->
+    <!-- Home: Continue Watching, Recently added, TV Shows, Movies, Clips. Empty rows are left out. -->
     <RowList id="rows"
       translation="[96,170]"
       itemComponentName="PosterItem"
@@ -21,5 +22,19 @@
       vertFocusAnimationStyle="floatingFocus" />
     <ShowScreen id="showScreen" visible="false" />
     <Video id="video" width="1920" height="1080" visible="false" />
+
+    <!-- Player overlays. They take focus while visible, so OK presses them. -->
+    <Group id="skipIntro" translation="[1480,880]" visible="false">
+      <Button id="skipButton" text="Skip intro" minWidth="320" showFocusFootprint="true" />
+    </Group>
+    <Group id="upNext" translation="[1160,740]" visible="false">
+      <Rectangle width="680" height="240" color="0x000000D9" />
+      <Label id="upNextTitle" translation="[28,24]" width="624" font="font:MediumBoldSystemFont" />
+      <Label id="upNextCount" translation="[28,78]" width="624" font="font:SmallSystemFont" color="0xA3A3A3FF" />
+      <Button id="upNextButton" translation="[28,140]" text="Play now" minWidth="280" showFocusFootprint="true" />
+    </Group>
+    <Timer id="countdown" repeat="true" duration="1" />
+
+    <ChoiceDialog id="dialog" visible="false" />
   </children>
 </component>

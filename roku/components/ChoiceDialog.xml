@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- A small menu over everything else: a title and a list of choices.
+     Used for Resume / Start over and for the * menus. -->
+<component name="ChoiceDialog" extends="Group">
+  <interface>
+    <field id="title" type="string" onChange="onTitle" />
+    <field id="options" type="array" onChange="onOptions" />
+    <!-- Out: index of the chosen option. -->
+    <field id="selected" type="integer" alwaysNotify="true" />
+    <!-- Out: Back was pressed. -->
+    <field id="cancelled" type="boolean" alwaysNotify="true" />
+    <function name="open" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/ChoiceDialog.brs" />
+  <children>
+    <Rectangle width="1920" height="1080" color="0x000000B0" />
+    <Rectangle id="panel" translation="[560,280]" width="800" height="520" color="0x1C1C1CFF" />
+    <Label id="titleLabel" translation="[600,316]" width="720" font="font:MediumBoldSystemFont" wrap="true" maxLines="2" />
+    <LabelList id="list" translation="[600,420]" itemSize="[720,64]" numRows="5" />
+  </children>
+</component>
