@@ -114,13 +114,19 @@ git push ──► Jenkins (polls every 3 min) ──► kaniko builds downloade
 1. Enable Developer Mode on the Roku: Home ×3, Up ×2, Right, Left, Right, Left, Right. Set a password.
 2. `ROKU_IP=<roku ip> scripts/roku-sideload.sh` (it prompts for the dev password)
    (or run `scripts/roku-package.sh` and upload `build/stream-kubenex-roku.zip` at `http://<roku ip>`).
-3. Home screen rows: Continue Watching, Recently added, TV Shows, Movies, Clips. OK on a show
+3. Home opens on a banner with the last played video (else the newest): Resume, Play from
+   beginning, Go to show. Down moves to the rows (the banner slides away); Up on the first row
+   brings it back. A show's banner and card use its artwork if one was uploaded (web form →
+   TV shows → **Artwork**; a wide 16:9 picture works best).
+   Rows: Continue Watching, Recently added, TV Shows, Movies, Clips. OK on a show
    opens its seasons (left) and episodes (right); OK on a video plays it (part-watched: Resume
    or Play from beginning). Back goes back one screen. Cards show a progress bar or "Watched".
 4. `*` opens a menu: on a video, resume / play from beginning / mark watched or not; on a show
    or a season, mark all watched or not; on the home screen, Refresh library. While playing:
    next episode, previous episode, play from beginning.
-5. In the player: **Skip intro** appears during the intro (OK skips it). At the credits the
+5. In the player: **Pause** (or OK) shows Resume, Previous episode, Play from beginning and Next
+   episode above the progress bar; Play or Fast-forward/Rewind hides them.
+   **Skip intro** appears during the intro (OK skips it). At the credits the
    episode counts as watched and **Up next** counts down 10 s (OK plays now, Back keeps watching).
 6. Debug output: `nc <roku ip> 8085`.
 

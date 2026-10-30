@@ -18,6 +18,7 @@ sub onShow()
     if not sameShow then m.seasonIndex = 0
     m.showName = show.name
     m.top.findNode("name").text = show.name
+    m.top.findNode("backdrop").uri = show.art
 
     list = CreateObject("roSGNode", "ContentNode")
     for each s in show.seasons

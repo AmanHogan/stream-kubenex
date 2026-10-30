@@ -77,7 +77,8 @@ sub addShowRow(root as Object, shows as Object)
         item = row.createChild("ContentNode")
         item.addFields({ itemType: "show", showIndex: i, videoId: "", progressPos: 0, lengthSec: 0, isWatched: false })
         item.title = s.name
-        item.HDPOSTERURL = s.thumbnail
+        ' The show's uploaded artwork, or else an episode thumbnail.
+        item.HDPOSTERURL = s.art
         count = s.episode_count
         if count = 1
             item.SHORTDESCRIPTIONLINE2 = "1 episode"

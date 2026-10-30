@@ -4,19 +4,33 @@
   <script type="text/brightscript" uri="pkg:/components/util.brs" />
   <children>
     <Rectangle color="0x0A0A0AFF" width="1920" height="1080" />
+
+    <!-- Home banner: the last played video (or the newest). Down goes to the rows,
+         which then move up and take the whole screen; Up on the first row comes back. -->
+    <Group id="hero" visible="false">
+      <Poster id="heroArt" width="1920" height="640" loadDisplayMode="scaleToFill" />
+      <Rectangle width="1920" height="640" color="0x0A0A0A80" />
+      <Rectangle width="1180" height="640" color="0x0A0A0AB3" />
+      <Rectangle translation="[0,600]" width="1920" height="40" color="0x0A0A0AFF" />
+      <Label id="heroKicker" translation="[96,230]" font="font:SmallBoldSystemFont" color="0x60A5FAFF" />
+      <Label id="heroTitle" translation="[96,272]" width="1040" wrap="true" maxLines="2" font="font:LargeBoldSystemFont" />
+      <Label id="heroSub" translation="[96,400]" width="1040" font="font:MediumSystemFont" color="0xD4D4D4FF" />
+      <ButtonGroup id="heroButtons" translation="[96,470]" layoutDirection="horiz" itemSpacings="[24]" minWidth="260" />
+    </Group>
+
     <Label id="header" text="Stream Kubenex" translation="[96,48]" font="font:LargeBoldSystemFont" />
     <Label id="status" text="Loading..." translation="[96,108]" font="font:SmallSystemFont" color="0xA3A3A3FF" />
-    <!-- Home: Continue Watching, Recently added, TV Shows, Movies, Clips. Empty rows are left out. -->
+    <!-- Continue Watching, Recently added, TV Shows, Movies, Clips. Empty rows are left out. -->
     <RowList id="rows"
       translation="[96,170]"
       itemComponentName="PosterItem"
       numRows="2"
-      itemSize="[1728,400]"
-      itemSpacing="[0,40]"
-      rowItemSize="[[400,310]]"
-      rowItemSpacing="[[32,0]]"
+      itemSize="[1728,430]"
+      itemSpacing="[0,30]"
+      rowItemSize="[[480,360]]"
+      rowItemSpacing="[[36,0]]"
       showRowLabel="[true]"
-      rowLabelOffset="[[0,12]]"
+      rowLabelOffset="[[0,14]]"
       rowLabelFont="font:MediumBoldSystemFont"
       rowFocusAnimationStyle="floatingFocus"
       vertFocusAnimationStyle="floatingFocus" />
@@ -32,6 +46,11 @@
       <Label id="upNextTitle" translation="[32,24]" width="836" wrap="true" maxLines="2" font="font:MediumBoldSystemFont" />
       <Label id="upNextCount" translation="[32,124]" width="836" wrap="true" maxLines="2" font="font:SmallSystemFont" color="0xA3A3A3FF" />
       <Button id="upNextButton" translation="[32,200]" text="Play now" minWidth="280" showFocusFootprint="true" />
+    </Group>
+    <!-- While paused: Resume, Previous, Play from beginning, Next. Sits above the
+         Roku's own progress bar. -->
+    <Group id="pauseBar" translation="[96,740]" visible="false">
+      <ButtonGroup id="pauseButtons" layoutDirection="horiz" itemSpacings="[20]" minWidth="240" />
     </Group>
     <Timer id="countdown" repeat="true" duration="1" />
 

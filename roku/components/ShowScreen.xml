@@ -17,6 +17,8 @@
   <script type="text/brightscript" uri="pkg:/components/util.brs" />
   <children>
     <Rectangle color="0x0A0A0AFF" width="1920" height="1080" />
+    <!-- The show's artwork, faint, behind everything. -->
+    <Poster id="backdrop" width="1920" height="1080" loadDisplayMode="scaleToFill" opacity="0.18" />
     <Label id="name" translation="[96,48]" font="font:LargeBoldSystemFont" />
     <Label id="hint" translation="[96,108]" font="font:SmallSystemFont" color="0xA3A3A3FF"
       text="Left and Right move between seasons and episodes  -  OK plays  -  * for more  -  Back returns" />

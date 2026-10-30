@@ -15,6 +15,10 @@ sub init()
     m.upNextButton = m.top.findNode("upNextButton")
     m.countdown = m.top.findNode("countdown")
     m.dialog = m.top.findNode("dialog")
+    m.hero = m.top.findNode("hero")
+    m.heroButtons = m.top.findNode("heroButtons")
+    m.pauseBar = m.top.findNode("pauseBar")
+    m.pauseButtons = m.top.findNode("pauseButtons")
 
     m.rows.observeField("rowItemSelected", "onRowItemSelected")
     m.showScreen.observeField("selectedVideoId", "onShowVideoSelected")
@@ -27,6 +31,8 @@ sub init()
     m.countdown.observeField("fire", "onCountdown")
     m.dialog.observeField("selected", "onDialogSelected")
     m.dialog.observeField("cancelled", "onDialogCancelled")
+    m.heroButtons.observeField("buttonSelected", "onHeroButton")
+    m.pauseButtons.observeField("buttonSelected", "onPauseButton")
 
     m.api = CreateObject("roSGNode", "ApiTask")
     m.api.observeField("completed", "onApiCompleted")
@@ -38,6 +44,10 @@ sub init()
     m.videos = {}
     m.current = invalid     ' the video playing now (an entry of m.videos)
     m.choices = []
+    m.heroVideo = invalid   ' the video in the home banner
+    m.heroActions = []
+    m.pauseActions = []
+    m.homeFocus = "hero"    ' hero | rows: where focus goes back to on the home screen
     m.top.setFocus(true)
     loadLibrary()
 end sub
@@ -58,6 +68,7 @@ sub onLibraryLoaded()
     m.videos = m.task.videos
     focused = m.rows.rowItemFocused
     m.rows.content = m.task.rows
+    setHero(m.library.hero)
     rowCount = m.task.rows.getChildCount()
     if rowCount = 0
         m.status.text = "No videos yet. Add one from the web form, then press * and Refresh."
@@ -75,7 +86,90 @@ sub onLibraryLoaded()
             if s.name = m.showScreen.show.name then m.showScreen.show = s
         end for
     end if
-    if not m.showScreen.visible and not m.video.visible and not m.dialog.visible then m.rows.setFocus(true)
+    if not m.showScreen.visible and not m.video.visible and not m.dialog.visible then focusHome()
+end sub
+
+' --- home banner ----------------------------------------------------------------
+
+sub setHero(v as Dynamic)
+    m.heroVideo = v
+    if v = invalid
+        m.hero.visible = false
+        m.homeFocus = "rows"
+        m.rows.translation = [96, 170]
+        return
+    end if
+    m.top.findNode("heroArt").uri = v.art
+    position = intOr(v.position, 0)
+    ' The server takes the hero from Continue Watching when there is anything in it.
+    cont = m.library["continue"]
+    fromContinue = cont <> invalid and cont.Count() > 0 and cont[0].id = v.id
+    if position > 0
+        m.top.findNode("heroKicker").text = "CONTINUE WATCHING"
+    else if fromContinue
+        m.top.findNode("heroKicker").text = "UP NEXT"
+    else
+        m.top.findNode("heroKicker").text = "RECENTLY ADDED"
+    end if
+    if v.kind = "episode" and v.show <> invalid
+        m.top.findNode("heroTitle").text = v.show
+        m.top.findNode("heroSub").text = episodeLabel(v) + "  -  " + watchState(v)
+    else
+        m.top.findNode("heroTitle").text = v.title
+        m.top.findNode("heroSub").text = watchState(v)
+    end if
+
+    m.heroActions = []
+    if position > 0
+        m.heroActions.Push({ label: "Resume", action: "play", start: position })
+        m.heroActions.Push({ label: "Play from beginning", action: "play", start: 0 })
+    else
+        m.heroActions.Push({ label: "Play", action: "play", start: 0 })
+    end if
+    if v.kind = "episode" and v.show <> invalid then m.heroActions.Push({ label: "Go to show", action: "show" })
+    labels = []
+    for each a in m.heroActions
+        labels.Push(a.label)
+    end for
+    m.heroButtons.buttons = labels
+    if m.homeFocus = "hero" then showHeroLayout()
+end sub
+
+' The banner on top, one row of cards under it.
+sub showHeroLayout()
+    m.hero.visible = true
+    m.rows.translation = [96, 660]
+end sub
+
+' No banner: the rows take the whole screen.
+sub showRowsLayout()
+    m.hero.visible = false
+    m.rows.translation = [96, 170]
+end sub
+
+sub focusHome()
+    if m.homeFocus = "hero" and m.heroVideo <> invalid
+        showHeroLayout()
+        m.heroButtons.setFocus(true)
+    else if m.rows.content <> invalid and m.rows.content.getChildCount() > 0
+        m.homeFocus = "rows"
+        showRowsLayout()
+        m.rows.setFocus(true)
+    else
+        m.top.setFocus(true)
+    end if
+end sub
+
+sub onHeroButton()
+    a = m.heroActions[m.heroButtons.buttonSelected]
+    v = m.heroVideo
+    if a.action = "play"
+        play(v, a.start)
+    else if a.action = "show"
+        for each s in m.library.shows
+            if s.name = v.show then m.showScreen.show = s
+        end for
+    end if
 end sub
 
 sub onLibraryError()
@@ -134,7 +228,7 @@ sub onShowVideoSelected()
 end sub
 
 sub onShowClosed()
-    m.rows.setFocus(true)
+    focusHome()
 end sub
 
 ' Part-watched: ask Resume or Start over. Otherwise play from the top.
@@ -256,10 +350,62 @@ sub hideOverlays()
     m.countdown.control = "stop"
     m.skip.visible = false
     m.upNext.visible = false
+    m.pauseBar.visible = false
+end sub
+
+' --- pause controls ---------------------------------------------------------------
+
+sub showPauseBar()
+    v = m.current
+    if v = invalid then return
+    m.pauseActions = [{ label: "Resume", action: "resume" }]
+    if v.prev_id <> invalid and m.videos.DoesExist(v.prev_id)
+        m.pauseActions.Push({ label: "Previous episode", action: "episode", id: v.prev_id })
+    end if
+    m.pauseActions.Push({ label: "Play from beginning", action: "startover" })
+    if v.next_id <> invalid and m.videos.DoesExist(v.next_id)
+        m.pauseActions.Push({ label: "Next episode", action: "episode", id: v.next_id })
+    end if
+    labels = []
+    for each a in m.pauseActions
+        labels.Push(a.label)
+    end for
+    m.pauseButtons.buttons = labels
+    m.pauseBar.visible = true
+    ' Resume first, so OK on a paused video still resumes it.
+    m.pauseButtons.focusButton = 0
+    m.pauseButtons.setFocus(true)
+end sub
+
+sub hidePauseBar()
+    inFocus = m.pauseButtons.isInFocusChain()
+    m.pauseBar.visible = false
+    if inFocus then m.video.setFocus(true)
+end sub
+
+sub onPauseButton()
+    a = m.pauseActions[m.pauseButtons.buttonSelected]
+    hidePauseBar()
+    if a.action = "resume"
+        m.video.control = "resume"
+    else if a.action = "startover"
+        m.video.seek = 0
+        m.video.control = "resume"
+    else if a.action = "episode"
+        play(m.videos[a.id], 0)
+    end if
 end sub
 
 sub onVideoState()
     state = m.video.state
+    if state = "paused"
+        ' The menu pauses the video too; it has its own choices.
+        if not m.dialog.visible and not m.upNext.visible then showPauseBar()
+        if m.upNext.visible then m.countdown.control = "stop"
+    else if state = "playing"
+        if m.pauseBar.visible then hidePauseBar()
+        if m.upNext.visible then m.countdown.control = "start"
+    end if
     if state = "error"
         m.status.text = "Playback error: " + m.video.errorMsg
         closeVideo()
@@ -330,10 +476,8 @@ sub restoreFocus()
         m.video.setFocus(true)
     else if m.showScreen.visible
         m.showScreen.callFunc("restoreFocus", {})
-    else if m.rows.content <> invalid and m.rows.content.getChildCount() > 0
-        m.rows.setFocus(true)
     else
-        m.top.setFocus(true)
+        focusHome()
     end if
 end sub
 
@@ -440,13 +584,30 @@ function onKeyEvent(key as String, press as Boolean) as Boolean
                 m.skipDismissed = true
                 hideSkip()
             end if
+            if m.pauseBar.visible then hidePauseBar()
             m.video.setFocus(true)
             return true
         end if
         return false
     end if
-    if key = "options" and not m.showScreen.visible
-        openHomeMenu()
+    if m.showScreen.visible then return false
+    ' Home: Down leaves the banner for the rows; Up on the first row goes back.
+    if key = "down" and m.heroButtons.isInFocusChain() and m.rows.content <> invalid and m.rows.content.getChildCount() > 0
+        m.homeFocus = "rows"
+        focusHome()
+        return true
+    end if
+    if key = "up" and m.rows.hasFocus() and m.heroVideo <> invalid
+        m.homeFocus = "hero"
+        focusHome()
+        return true
+    end if
+    if key = "options"
+        if m.heroButtons.isInFocusChain() and m.heroVideo <> invalid
+            showMenu(episodeLabel(m.heroVideo), videoChoices(m.heroVideo))
+        else
+            openHomeMenu()
+        end if
         return true
     end if
     return false

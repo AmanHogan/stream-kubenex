@@ -8,6 +8,6 @@ sub onContent()
     m.top.findNode("track").visible = partWatched
     bar = m.top.findNode("bar")
     bar.visible = partWatched
-    if partWatched then bar.width = Int(400 * item.progressPos / item.lengthSec)
+    if partWatched then bar.width = Int(480 * item.progressPos / item.lengthSec)
     m.top.findNode("badge").visible = item.isWatched
 end sub
