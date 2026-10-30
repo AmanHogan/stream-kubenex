@@ -38,6 +38,7 @@
   li.group { background:none; border:0; padding:14px 2px 4px; margin:0; font-weight:600; }
   li.group span { color:var(--muted); font-weight:400; font-size:13px; }
   li.group.show { font-size:17px; padding-top:22px; }
+  li.group.show img.art { width:96px; height:54px; object-fit:cover; border-radius:4px; vertical-align:middle; margin-right:10px; }
   li.group button { padding:2px 8px; font-size:12px; }
   .seen { color:var(--ok); }
   .edit .wide { grid-column:1 / -1; }
@@ -290,6 +291,28 @@ function showMarkersRow(name) {
   return el("li", {}, form);
 }
 
+// Show artwork: pick an image and send it as the raw request body.
+function pickArt(name) {
+  const input = el("input", { type: "file", accept: "image/*" });
+  input.onchange = async () => {
+    const file = input.files[0];
+    if (!file) return;
+    $("msg").textContent = `Uploading artwork for ${name}…`;
+    try {
+      const res = await fetch(`/api/shows/${encodeURIComponent(name)}/art`, {
+        method: "PUT", headers: { "X-Api-Token": getToken(), "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+      $("msg").textContent = `Artwork saved for ${name}.`;
+      refresh();
+    } catch (e) {
+      $("msg").textContent = "Artwork upload failed: " + e.message;
+    }
+  };
+  input.click();
+}
+
 // TV shows: a heading per show (with its markers), a sub-heading per season
 // (with mark-season buttons), then the episodes in order.
 function showRows(list) {
@@ -306,10 +329,18 @@ function showRows(list) {
       const sm = shows[name] || {};
       const summary = [sm.intro_start != null ? `intro ${fmtTime(sm.intro_start)}–${fmtTime(sm.intro_end)}` : "",
         sm.credits_before_end != null ? `credits ${fmtTime(sm.credits_before_end)} before end` : ""].filter(Boolean).join(" · ");
-      out.push(el("li", { className: "group show" }, name, " ",
+      out.push(el("li", { className: "group show" },
+        sm.art_url ? el("img", { className: "art", src: sm.art_url, alt: "" }) : "",
+        name, " ",
         el("span", { textContent: summary || "no intro/credits markers" }), " ",
         v.show ? el("button", { className: "ghost", textContent: "Intro & credits",
-          onclick: () => { editingShow = name; render(); } }) : ""));
+          onclick: () => { editingShow = name; render(); } }) : "", " ",
+        v.show ? el("button", { className: "ghost", textContent: sm.art_url ? "Change artwork" : "Artwork",
+          title: "A wide picture (16:9 works best) for the show's card, the TV home banner and the show screen",
+          onclick: () => pickArt(name) }) : "", " ",
+        sm.art_url ? el("button", { className: "ghost", textContent: "Remove artwork",
+          onclick: () => confirm(`Remove the artwork for ${name}?`) &&
+            api("DELETE", `/api/shows/${encodeURIComponent(name)}/art`).then(refresh) }) : ""));
       if (editingShow === name) out.push(showMarkersRow(name));
     }
     if (v.season !== curSeason) {

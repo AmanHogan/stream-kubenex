@@ -14,6 +14,7 @@ Security (see README "Security"):
 - URLs that resolve to private, LAN, cluster or Tailscale addresses are refused.
   The NetworkPolicy in deploy/k8s enforces the same rule at the network level.
 """
+import hashlib
 import hmac
 import ipaddress
 import json
@@ -95,13 +96,15 @@ CREATE TABLE IF NOT EXISTS videos (
     credits_before_end INTEGER
 )
 """
-# Intro and credits markers, set once per show on the web form.
+# Per-show settings from the web form: intro/credits markers and optional artwork.
 SHOWS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS shows (
     name        TEXT PRIMARY KEY,
     intro_start INTEGER,
     intro_end   INTEGER,
-    credits_before_end INTEGER
+    credits_before_end INTEGER,
+    art         TEXT,                       -- file name in media/art/, or NULL
+    art_version INTEGER                     -- changes on every upload, so the Roku refetches
 )
 """
 # Columns added after the first release. Older databases get them at startup.
@@ -123,6 +126,12 @@ ADDED_COLUMNS = {
     "intro_end": "INTEGER",
     "credits_before_end": "INTEGER",
 }
+
+SHOWS_ADDED_COLUMNS = {"art": "TEXT", "art_version": "INTEGER"}
+
+# Show artwork: converted to JPEG, at most 1920 wide, served by nginx under /media/art/.
+ART_DIR = MEDIA_DIR / "art"
+MAX_ART_BYTES = 15 * 1024 * 1024
 
 app = FastAPI(title="stream-kubenex")
 # One worker per lane. Page URLs ("queue") wait their turn. Media URLs from the
@@ -375,6 +384,10 @@ def startup() -> None:
     with db() as conn:
         conn.execute(SCHEMA)
         conn.execute(SHOWS_SCHEMA)
+        have_shows = {r["name"] for r in conn.execute("PRAGMA table_info(shows)")}
+        for col, sql_type in SHOWS_ADDED_COLUMNS.items():
+            if col not in have_shows:
+                conn.execute(f"ALTER TABLE shows ADD COLUMN {col} {sql_type}")
         have = {r["name"] for r in conn.execute("PRAGMA table_info(videos)")}
         for col, sql_type in ADDED_COLUMNS.items():
             if col not in have:
@@ -450,7 +463,13 @@ class DownloadRequest(BaseModel):
 
 
 def show_markers(conn: sqlite3.Connection) -> dict[str, dict]:
-    return {r["name"]: dict(r) for r in conn.execute("SELECT * FROM shows")}
+    """Per-show settings by show name, with the artwork as a full URL ("" = none)."""
+    shows = {}
+    for r in conn.execute("SELECT * FROM shows"):
+        s = dict(r)
+        s["art_url"] = f"{PUBLIC_BASE_URL}/media/art/{s['art']}?v={s['art_version']}" if s.get("art") else ""
+        shows[s["name"]] = s
+    return shows
 
 
 def media_urls(vid: str) -> dict:
@@ -643,6 +662,67 @@ def set_show_markers(name: str, req: Markers) -> dict:
     return {"name": name, **req.model_dump()}
 
 
+def require_show(conn: sqlite3.Connection, name: str) -> None:
+    if not conn.execute("SELECT 1 FROM videos WHERE show = ? LIMIT 1", (name,)).fetchone():
+        raise HTTPException(404, "No show with that name.")
+
+
+@app.put("/api/shows/{name}/art", dependencies=[Depends(require_token)])
+async def set_show_art(name: str, request: Request) -> dict:
+    """Optional artwork for a show. The body is the raw image (JPEG, PNG, WebP...).
+    It is used for the show's card, the home banner and the show screen."""
+    size = int(request.headers.get("content-length") or 0)
+    if not size:
+        raise HTTPException(411, "Content-Length is required.")
+    if size > MAX_ART_BYTES:
+        raise HTTPException(413, f"Images can be at most {MAX_ART_BYTES // (1024 * 1024)} MB.")
+    with db() as conn:
+        require_show(conn, name)
+    body = await request.body()
+    if len(body) > MAX_ART_BYTES:
+        raise HTTPException(413, "The body is larger than Content-Length.")
+
+    ART_DIR.mkdir(parents=True, exist_ok=True)
+    # The file name comes from a hash: show names may hold any character.
+    filename = f"show-{hashlib.sha1(name.encode()).hexdigest()[:12]}.jpg"
+    upload = ART_DIR / f".upload-{uuid.uuid4().hex}"
+    tmp = ART_DIR / f".{filename}"
+    try:
+        upload.write_bytes(body)
+        # ffmpeg reads any common image format; output one JPEG, at most 1920 wide.
+        proc = await anyio.to_thread.run_sync(lambda: subprocess.run(
+            ["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", str(upload), "-frames:v", "1",
+             "-vf", "scale='min(1920,iw)':-2", "-q:v", "3", "-f", "image2", str(tmp)],
+            capture_output=True, timeout=60))
+        if proc.returncode != 0 or not tmp.exists():
+            raise HTTPException(400, "That file is not an image ffmpeg can read.")
+        tmp.rename(ART_DIR / filename)
+    finally:
+        upload.unlink(missing_ok=True)
+        tmp.unlink(missing_ok=True)
+
+    version = int(time.time())
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO shows (name, art, art_version) VALUES (?, ?, ?) "
+            "ON CONFLICT(name) DO UPDATE SET art = excluded.art, art_version = excluded.art_version",
+            (name, filename, version),
+        )
+        art_url = show_markers(conn)[name]["art_url"]
+    return {"name": name, "art_url": art_url}
+
+
+@app.delete("/api/shows/{name}/art", status_code=204, dependencies=[Depends(require_token)])
+def delete_show_art(name: str) -> Response:
+    with db() as conn:
+        row = conn.execute("SELECT art FROM shows WHERE name = ?", (name,)).fetchone()
+        if row is None or not row["art"]:
+            raise HTTPException(404, "That show has no artwork.")
+        conn.execute("UPDATE shows SET art = NULL, art_version = NULL WHERE name = ?", (name,))
+    (ART_DIR / row["art"]).unlink(missing_ok=True)
+    return Response(status_code=204)
+
+
 # --- watch progress -----------------------------------------------------------
 # No token on these two: the Roku cannot keep a secret (its code ships in the
 # channel zip), and they only change watch state, never files. LAN only.
@@ -701,9 +781,10 @@ def feed() -> dict:
 
 @app.get("/api/library")
 def library_feed() -> dict:
-    """The Roku home screen: Continue Watching, recent videos, TV shows (with seasons),
-    movies and clips. Every video carries its progress, markers and next/previous
-    episode. Open like /api/feed, and for the same reason."""
+    """The Roku home screen: the hero banner (last played), Continue Watching, recent
+    videos, TV shows (with seasons), movies and clips. Every video carries its
+    progress, markers, next/previous episode and big-picture art. Open like
+    /api/feed, and for the same reason."""
     with db() as conn:
         rows = conn.execute(
             "SELECT id, title, uploader, duration, description, kind, show, season, episode, year, "
@@ -712,7 +793,16 @@ def library_feed() -> dict:
         ).fetchall()
         shows = show_markers(conn)
     videos = playback.enrich([{**dict(r), **media_urls(r["id"])} for r in rows], shows)
-    return {"continue": playback.continue_watching(videos), **library.group(videos)}
+    for v in videos:
+        # Big pictures (home banner, show cards) prefer the show's uploaded artwork.
+        v["art"] = shows.get(v.get("show") or "", {}).get("art_url") or v["thumbnail"]
+    lib = library.group(videos)
+    for s in lib["shows"]:
+        s["art"] = shows.get(s["name"], {}).get("art_url") or s["thumbnail"]
+    cont = playback.continue_watching(videos)
+    # The home banner: what you watched last, or else the newest video.
+    hero = (cont or lib["recent"] or [None])[0]
+    return {"hero": hero, "continue": cont, **lib}
 
 
 @app.get("/healthz")
