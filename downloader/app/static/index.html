@@ -52,7 +52,8 @@
   .edit label { display:flex; flex-direction:column; font-size:12px; color:var(--muted); gap:2px; }
   .edit label.wide { grid-column:1 / -1; }
   .edit label[hidden] { display:none; }
-  .edit input, .edit select { padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); font:inherit; font-size:14px; }
+  .edit textarea { min-height:84px; resize:vertical; }
+  .edit input, .edit select, .edit textarea { padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); font:inherit; font-size:14px; }
   .edit .buttons { grid-column:1 / -1; display:flex; gap:6px; }
   .edit .buttons button { padding:6px 12px; font-size:13px; }
 </style>
@@ -266,6 +267,8 @@ function editRow(v) {
   const num = (value) => el("input", { type: "number", min: 0, value: value ?? "" });
   const season = num(v.season), episode = num(v.episode);
   const year = el("input", { type: "number", min: 1880, max: 2100, value: v.year ?? "" });
+  const description = el("textarea", { value: v.description || "", maxLength: 5000,
+    placeholder: "Synopsis for the TV details screen (optional)" });
   const err = el("span", { className: "muted failed" });
   // Per-episode overrides. Empty = use the show's markers, shown as the placeholder.
   const sm = shows[v.show] || {};
@@ -289,6 +292,7 @@ function editRow(v) {
       await api("PATCH", `/api/videos/${v.id}`, {
         kind: kind.value, title: title.value,
         show: show.value || null, season: toInt(season), episode: toInt(episode), year: toInt(year),
+        description: description.value,
         intro_start: parseTime(introStart.value), intro_end: parseTime(introEnd.value),
         credits_before_end: parseTime(credits.value),
       });
@@ -301,11 +305,15 @@ function editRow(v) {
 
   const form = el("div", { className: "edit" },
     field("Type", kind), field("Title", title, true), ...tvOnly, ...movieOnly,
+    field("Description", description, true),
     el("div", { className: "buttons" },
       el("button", { textContent: "Save", onclick: save }),
       el("button", { className: "ghost", textContent: "Cancel", onclick: () => { editing = null; render(); } }),
       err));
-  form.addEventListener("keydown", (ev) => { if (ev.key === "Enter") save(); if (ev.key === "Escape") { editing = null; render(); } });
+  form.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" && ev.target.tagName !== "TEXTAREA") save();
+    if (ev.key === "Escape") { editing = null; render(); }
+  });
   const thumb = v.thumbnail ? el("img", { src: v.thumbnail, alt: "" }) : el("div", { className: "ph" });
   return el("li", {}, thumb, form);
 }
@@ -355,6 +363,36 @@ function showMarkersRow(name) {
   return el("li", {}, form);
 }
 
+// The show's year and synopsis, for the TV details screen.
+let editingInfo = null;
+
+function showInfoRow(name) {
+  const sm = shows[name] || {};
+  const year = el("input", { type: "number", min: 1880, max: 2100, value: sm.year ?? "", placeholder: "e.g. 2011" });
+  const description = el("textarea", { value: sm.description || "", maxLength: 5000,
+    placeholder: "What the show is about. The TV shows it on the details screen." });
+  const err = el("span", { className: "muted failed" });
+  const close = () => { editingInfo = null; render(); };
+  async function save() {
+    try {
+      await api("PATCH", `/api/shows/${encodeURIComponent(name)}`, {
+        year: year.value === "" ? null : Number(year.value), description: description.value,
+      });
+      editingInfo = null;
+      refresh();
+    } catch (e) {
+      err.textContent = e.message;
+    }
+  }
+  const form = el("div", { className: "edit" },
+    field("Year", year), field("Synopsis", description, true),
+    el("div", { className: "buttons" },
+      el("button", { textContent: "Save", onclick: save }),
+      el("button", { className: "ghost", textContent: "Cancel", onclick: close }), err));
+  form.addEventListener("keydown", (ev) => { if (ev.key === "Escape") close(); });
+  return el("li", {}, form);
+}
+
 // Show artwork: pick an image and send it as the raw request body.
 function pickArt(name) {
   const input = el("input", { type: "file", accept: "image/*" });
@@ -397,6 +435,9 @@ function showRows(list) {
         sm.art_url ? el("img", { className: "art", src: sm.art_url, alt: "" }) : "",
         name, " ",
         el("span", { textContent: summary || "no intro/credits markers" }), " ",
+        v.show ? el("button", { className: "ghost", textContent: "Details",
+          title: "Year and synopsis for the TV details screen",
+          onclick: () => { editingInfo = name; render(); } }) : "", " ",
         v.show ? el("button", { className: "ghost", textContent: "Intro & credits",
           onclick: () => { editingShow = name; render(); } }) : "", " ",
         v.show ? el("button", { className: "ghost", textContent: sm.art_url ? "Change artwork" : "Artwork",
@@ -405,6 +446,7 @@ function showRows(list) {
         sm.art_url ? el("button", { className: "ghost", textContent: "Remove artwork",
           onclick: () => confirm(`Remove the artwork for ${name}?`) &&
             api("DELETE", `/api/shows/${encodeURIComponent(name)}/art`).then(refresh) }) : ""));
+      if (editingInfo === name) out.push(showInfoRow(name));
       if (editingShow === name) out.push(showMarkersRow(name));
     }
     if (v.season !== curSeason) {
@@ -446,7 +488,7 @@ async function refresh(force = false) {
     const data = await api("GET", "/api/videos");
     videos = data.videos;
     shows = data.shows || {};
-    if (force || (editing === null && editingShow === null && subsOpen === null)) render();
+    if (force || (editing === null && editingShow === null && editingInfo === null && subsOpen === null)) render();
     const d = data.disk;
     $("disk").textContent = `${d.free_gb} GB free of ${d.total_gb} GB · downloads stop below ${d.min_free_gb} GB`;
   } catch (e) {

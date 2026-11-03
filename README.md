@@ -114,13 +114,16 @@ git push ──► Jenkins (polls every 3 min) ──► kaniko builds downloade
 1. Enable Developer Mode on the Roku: Home ×3, Up ×2, Right, Left, Right, Left, Right. Set a password.
 2. `ROKU_IP=<roku ip> scripts/roku-sideload.sh` (it prompts for the dev password)
    (or run `scripts/roku-package.sh` and upload `build/stream-kubenex-roku.zip` at `http://<roku ip>`).
-3. Home opens on a banner with the last played video (else the newest): Resume, Play from
-   beginning, Go to show. Down moves to the rows (the banner slides away); Up on the first row
-   brings it back. A show's banner and card use its artwork if one was uploaded (web form →
-   TV shows → **Artwork**; a wide 16:9 picture works best).
-   Rows: Continue Watching, Recently added, TV Shows, Movies, Clips. OK on a show
-   opens its seasons (left) and episodes (right); OK on a video plays it (part-watched: Resume
-   or Play from beginning). Back goes back one screen. Cards show a progress bar or "Watched".
+3. Home shows rows of cards: Continue Watching, Recently added, TV Shows, Movies, Clips.
+   The selected card of the selected row is large (960x540) with three lines under it: the
+   show (or title), the episode in grey, and the time left. After 10 seconds on a video card,
+   the video plays inside the card with sound, from where you stopped (it never changes your
+   progress). Up/Down move between rows, Left/Right along a row. Back goes to the first card;
+   Back there leaves the channel. **Play** plays the selected video at once.
+   OK on a video opens its **details screen**: year, number of seasons, the episode, the
+   synopsis, and Resume, Play from beginning, Go to show. OK on a show opens its seasons (left)
+   and episodes (right). A show's cards and details use its artwork if one was uploaded (web
+   form → TV shows → **Artwork**; a wide 16:9 picture works best).
 4. `*` opens a menu: on a video, resume / play from beginning / mark watched or not; on a show
    or a season, mark all watched or not; on the home screen, Refresh library. While playing:
    next episode, previous episode, play from beginning.
@@ -163,6 +166,14 @@ The **intro** marker (start and end) drives the Skip intro button. Set it once p
 episode's Edit can override it. Stopping in the first 30 seconds leaves nothing to resume.
 `POST /api/progress` and `/api/watched` need no token, like the feed: the Roku cannot keep a
 secret, and they change watch state only.
+
+## Show details (year, synopsis)
+
+The details screen shows a year and a synopsis when they exist. Type them on the web form:
+TV shows → **Details** (the show's year and synopsis), and **Edit** → Description on any video
+(an episode's own synopsis wins over the show's). Downloads keep the site's description.
+There is no metadata service and no API key; a later import (for example from free datasets)
+can fill the same fields: `shows.year`, `shows.description`, `videos.description`.
 
 Check the code without a Roku: `npx -p brighterscript bsc --rootDir roku --createPackage false`.
 

@@ -104,7 +104,10 @@ CREATE TABLE IF NOT EXISTS shows (
     intro_end   INTEGER,
     credits_before_end INTEGER,
     art         TEXT,                       -- file name in media/art/, or NULL
-    art_version INTEGER                     -- changes on every upload, so the Roku refetches
+    art_version INTEGER,                    -- changes on every upload, so the Roku refetches
+    -- Details screen. Typed on the web form today; a metadata import can fill the same columns later.
+    year        INTEGER,                    -- first aired
+    description TEXT
 )
 """
 # Columns added after the first release. Older databases get them at startup.
@@ -127,7 +130,7 @@ ADDED_COLUMNS = {
     "credits_before_end": "INTEGER",
 }
 
-SHOWS_ADDED_COLUMNS = {"art": "TEXT", "art_version": "INTEGER"}
+SHOWS_ADDED_COLUMNS = {"art": "TEXT", "art_version": "INTEGER", "year": "INTEGER", "description": "TEXT"}
 
 # Subtitle tracks, one row per WebVTT file <video id>.sub<n>.vtt next to the video.
 SUBTITLES_SCHEMA = """
@@ -499,13 +502,49 @@ def import_file(row: sqlite3.Row) -> None:
         set_fields(vid, status="failed", error=str(e)[:500])
 
 
+# The Roku shows the focused card at 960x540 and the details backdrop at 1280x720.
+THUMB_WIDTH = 1280
+
+
 def make_thumbnail(vid: str, src: Path, duration: float) -> None:
     """One frame from 10% into the video. A missing thumbnail is not an error."""
+    tmp = MEDIA_DIR / f"{vid}.thumb.jpg"
     subprocess.run(
         ["ffmpeg", "-nostdin", "-y", "-v", "error", "-ss", str(duration * 0.1), "-i", str(src),
-         "-frames:v", "1", "-vf", "scale=480:-2", str(MEDIA_DIR / f"{vid}.jpg")],
+         "-frames:v", "1", "-vf", f"scale='min({THUMB_WIDTH},iw)':-2", "-q:v", "3", str(tmp)],
         capture_output=True, timeout=120,
     )
+    if tmp.exists() and tmp.stat().st_size > 0:
+        tmp.replace(MEDIA_DIR / f"{vid}.jpg")  # the swap is atomic, so nginx never serves half a file
+    else:
+        tmp.unlink(missing_ok=True)
+
+
+def image_width(path: Path) -> int:
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width",
+         "-of", "csv=p=0", str(path)],
+        capture_output=True, text=True, timeout=30,
+    )
+    try:
+        return int(out.stdout.strip())
+    except ValueError:
+        return 0
+
+
+def upgrade_thumbnails() -> None:
+    """Thumbnails from before the big home cards were 480 wide, and some sites give small
+    ones. Make a new one from the video itself. Runs once per start; cheap when done."""
+    with db() as conn:
+        rows = conn.execute("SELECT id, duration FROM videos WHERE status = 'ready'").fetchall()
+    for r in rows:
+        mp4, jpg = MEDIA_DIR / f"{r['id']}.mp4", MEDIA_DIR / f"{r['id']}.jpg"
+        if not mp4.exists() or (jpg.exists() and image_width(jpg) >= 960):
+            continue
+        try:
+            make_thumbnail(r["id"], mp4, float(r["duration"] or 0))
+        except subprocess.TimeoutExpired:
+            pass
 
 
 @app.on_event("startup")
@@ -535,6 +574,7 @@ def startup() -> None:
         conn.execute("UPDATE videos SET status = 'queued' WHERE status IN ('downloading', 'converting')")
     for lane in LANES:
         threading.Thread(target=worker, args=(lane,), daemon=True).start()
+    threading.Thread(target=upgrade_thumbnails, daemon=True).start()
 
 
 # --- API ----------------------------------------------------------------------
@@ -607,7 +647,8 @@ def media_urls(vid: str) -> dict:
     thumb = MEDIA_DIR / f"{vid}.jpg"
     return {
         "url": f"{PUBLIC_BASE_URL}/media/{vid}.mp4",
-        "thumbnail": f"{PUBLIC_BASE_URL}/media/{vid}.jpg" if thumb.exists() else "",
+        # ?v= changes when the picture does; the Roku caches pictures by URL.
+        "thumbnail": f"{PUBLIC_BASE_URL}/media/{vid}.jpg?v={int(thumb.stat().st_mtime)}" if thumb.exists() else "",
     }
 
 
@@ -717,6 +758,7 @@ class VideoUpdate(BaseModel):
     season: int | None = Field(default=None, ge=0, le=999)
     episode: int | None = Field(default=None, ge=0, le=9999)
     year: int | None = Field(default=None, ge=1880, le=2100)
+    description: str | None = Field(default=None, max_length=5000)
     # Per-episode overrides of the show's markers, in seconds. null = use the show's.
     intro_start: int | None = Field(default=None, ge=0, le=36000)
     intro_end: int | None = Field(default=None, ge=0, le=36000)
@@ -742,7 +784,7 @@ def check_intro(start: int | None, end: int | None) -> None:
 @app.patch("/api/videos/{vid}", dependencies=[Depends(require_token)])
 def update_video(vid: str, req: VideoUpdate) -> dict:
     changes = req.model_dump(exclude_unset=True)
-    for key in ("title", "show"):
+    for key in ("title", "show", "description"):
         if isinstance(changes.get(key), str):
             changes[key] = changes[key].strip() or None
     if "title" in changes and not changes["title"]:
@@ -853,6 +895,29 @@ def set_show_markers(name: str, req: Markers) -> dict:
 def require_show(conn: sqlite3.Connection, name: str) -> None:
     if not conn.execute("SELECT 1 FROM videos WHERE show = ? LIMIT 1", (name,)).fetchone():
         raise HTTPException(404, "No show with that name.")
+
+
+class ShowInfo(BaseModel):
+    """The show's details screen fields. Send only what changes; null clears one."""
+    model_config = ConfigDict(extra="forbid")
+
+    year: int | None = Field(default=None, ge=1880, le=2100)
+    description: str | None = Field(default=None, max_length=5000)
+
+
+@app.patch("/api/shows/{name}", dependencies=[Depends(require_token)])
+def update_show(name: str, req: ShowInfo) -> dict:
+    changes = req.model_dump(exclude_unset=True)
+    if isinstance(changes.get("description"), str):
+        changes["description"] = changes["description"].strip() or None
+    with db() as conn:
+        require_show(conn, name)
+        conn.execute("INSERT INTO shows (name) VALUES (?) ON CONFLICT(name) DO NOTHING", (name,))
+        if changes:
+            cols = ", ".join(f"{k} = ?" for k in changes)
+            conn.execute(f"UPDATE shows SET {cols} WHERE name = ?", (*changes.values(), name))
+        row = conn.execute("SELECT name, year, description FROM shows WHERE name = ?", (name,)).fetchone()
+    return dict(row)
 
 
 @app.put("/api/shows/{name}/art", dependencies=[Depends(require_token)])
@@ -988,7 +1053,10 @@ def library_feed() -> dict:
         v["art"] = shows.get(v.get("show") or "", {}).get("art_url") or v["thumbnail"]
     lib = library.group(videos)
     for s in lib["shows"]:
-        s["art"] = shows.get(s["name"], {}).get("art_url") or s["thumbnail"]
+        info = shows.get(s["name"], {})
+        s["art"] = info.get("art_url") or s["thumbnail"]
+        s["year"] = info.get("year")
+        s["description"] = info.get("description") or ""
     cont = playback.continue_watching(videos)
     # The home banner: what you watched last, or else the newest video.
     hero = (cont or lib["recent"] or [None])[0]

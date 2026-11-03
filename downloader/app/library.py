@@ -111,6 +111,7 @@ def group(videos: list[dict]) -> dict:
             "name": name,
             "thumbnail": next((e["thumbnail"] for e in episodes if e.get("thumbnail")), ""),
             "episode_count": len(episodes),
+            "season_count": sum(1 for n in seasons if n is not None),
             "seasons": [{"season": s, "episodes": eps} for s, eps in seasons.items()],
         })
     return {"recent": videos[:12], "shows": show_list, "movies": movies, "clips": clips}
