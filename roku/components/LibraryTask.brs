@@ -85,5 +85,15 @@ sub addShowRow(root as Object, shows as Object)
         else
             item.SHORTDESCRIPTIONLINE2 = count.ToStr() + " episodes"
         end if
+        ' "3 Seasons  ·  37 episodes" under the expanded card, then the year.
+        sizes = item.SHORTDESCRIPTIONLINE2
+        if s.season_count <> invalid and s.season_count > 1
+            sizes = s.season_count.ToStr() + " Seasons   " + Chr(183) + "   " + sizes
+        else if s.season_count = 1
+            sizes = "1 Season   " + Chr(183) + "   " + sizes
+        end if
+        year = ""
+        if s.year <> invalid then year = s.year.ToStr()
+        item.addFields({ line1: s.name, line2: sizes, line3: year, smallLabel: s.name })
     end for
 end sub

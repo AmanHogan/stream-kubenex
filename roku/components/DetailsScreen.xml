@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- The details screen for one video: title, year and seasons, the episode,
+     the synopsis, and Resume / Play from beginning / Go to show. Only the front
+     layer: MainScene draws the background picture and the preview video under it. -->
+<component name="DetailsScreen" extends="Group">
+  <interface>
+    <!-- One video from /api/library. Setting it fills the screen. -->
+    <field id="video" type="assocarray" onChange="onVideo" />
+    <!-- Its show from library.shows, or invalid. -->
+    <field id="show" type="assocarray" />
+    <!-- Out: { action: "play", start } or { action: "show" }. -->
+    <field id="action" type="assocarray" alwaysNotify="true" />
+    <!-- Out: Back was pressed. -->
+    <field id="closed" type="boolean" alwaysNotify="true" />
+    <function name="focusButtons" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/DetailsScreen.brs" />
+  <script type="text/brightscript" uri="pkg:/components/util.brs" />
+  <children>
+    <!-- Fade the picture into the background on the left and at the bottom. -->
+    <Poster uri="pkg:/images/fade_left.png" translation="[640,0]" width="760" height="720" loadDisplayMode="scaleToFill" />
+    <Poster uri="pkg:/images/fade_bottom.png" translation="[640,440]" width="1280" height="280" loadDisplayMode="scaleToFill" />
+    <Rectangle translation="[0,720]" width="1920" height="360" color="0x0A0A0AFF" />
+    <Rectangle width="640" height="720" color="0x0A0A0AFF" />
+
+    <Label id="title" translation="[96,150]" width="1100" wrap="true" maxLines="2" font="font:LargeBoldSystemFont" color="0xFFFFFFFF" />
+    <Label id="meta" translation="[96,0]" width="1100" font="font:SmallSystemFont" color="0xBDBDBDFF" />
+    <Label id="episode" translation="[96,0]" width="1100" font="font:MediumBoldSystemFont" color="0xFFFFFFFF" />
+    <Group id="progress" translation="[96,0]">
+      <Rectangle width="420" height="6" color="0xFFFFFF40" />
+      <Rectangle id="progressBar" width="0" height="6" color="0xE50914FF" />
+      <Label id="left" translation="[444,-18]" font="font:SmallSystemFont" color="0xBDBDBDFF" />
+    </Group>
+    <Label id="synopsis" translation="[96,0]" width="1000" wrap="true" maxLines="5" lineSpacing="6" font="font:SmallSystemFont" color="0xD4D4D4FF" />
+    <ButtonRow id="buttons" translation="[96,0]" minWidth="260" />
+  </children>
+</component>

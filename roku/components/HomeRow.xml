@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- One home row (a carousel): a title over HomeCards. The selected card stays
+     at the left edge and the row slides under it. In the active row (the one
+     with focus) the selected card is expanded and the cards after it make room. -->
+<component name="HomeRow" extends="Group">
+  <interface>
+    <!-- A ContentNode: title, and one child per card. -->
+    <field id="content" type="node" onChange="onContent" />
+    <field id="focusIndex" type="integer" value="0" />
+    <field id="active" type="boolean" onChange="onActive" />
+    <!-- Out: the height this row takes now (changes with active). -->
+    <field id="rowHeight" type="integer" />
+    <!-- Move the selection by delta cards. Returns true if it moved. -->
+    <function name="moveFocus" />
+    <!-- Select a card without animation (after a refresh). -->
+    <function name="jumpTo" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/HomeRow.brs" />
+  <children>
+    <Label id="title" font="font:MediumBoldSystemFont" color="0xE5E5E5FF" />
+    <Group id="clip" translation="[0,56]">
+      <Group id="strip" />
+    </Group>
+    <Animation id="slideAnim" duration="0.22" easeFunction="outQuad">
+      <Vector2DFieldInterpolator id="slideTo" key="[0.0, 1.0]" fieldToInterp="strip.translation" />
+    </Animation>
+  </children>
+</component>

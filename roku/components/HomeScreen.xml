@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- The home screen: rows of cards (Continue Watching, Recently added, TV Shows,
+     Movies, Clips). The active row sits under the header; its selected card is
+     expanded. Rows above it slide off the top. Give this node focus. -->
+<component name="HomeScreen" extends="Group">
+  <interface>
+    <!-- From LibraryTask: one child per row, one grandchild per card. -->
+    <field id="content" type="node" onChange="onContent" />
+    <field id="status" type="string" onChange="onStatus" />
+    <!-- Out: the selected card's ContentNode, on every move and after a refresh. -->
+    <field id="focusedItem" type="node" alwaysNotify="true" />
+    <!-- Out: OK on a card. -->
+    <field id="selectedItem" type="node" alwaysNotify="true" />
+    <!-- Out: Play on a card. -->
+    <field id="playItem" type="node" alwaysNotify="true" />
+    <!-- Out: where the expanded picture is on screen: [x, y, width, height]. -->
+    <field id="cardRect" type="array" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/HomeScreen.brs" />
+  <children>
+    <Group id="stack" translation="[96,120]" />
+    <Rectangle width="1920" height="104" color="0x0A0A0AFF" />
+    <Label id="header" text="Stream Kubenex" translation="[96,36]" font="font:MediumBoldSystemFont" color="0xE50914FF" />
+    <Label id="statusLabel" translation="[760,42]" width="1064" horizAlign="right" font="font:SmallestSystemFont" color="0x8C8C8CFF" />
+    <Animation id="scrollAnim" duration="0.25" easeFunction="outQuad">
+      <Vector2DFieldInterpolator id="scrollTo" key="[0.0, 1.0]" fieldToInterp="stack.translation" />
+    </Animation>
+  </children>
+</component>

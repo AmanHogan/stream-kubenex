@@ -7,6 +7,18 @@ sub fillVideoItem(item as Object, v as Object)
     item.addFields({ itemType: "video", showIndex: -1, videoId: v.id,
         progressPos: intOr(v.position, 0), lengthSec: intOr(v.duration, 0), isWatched: v.watched = true })
     item.title = title
+    ' Home cards: one line when small; three when expanded (name, then the episode in
+    ' grey, then the time left).
+    if v.kind = "episode" and v.show <> invalid
+        code = episodeCode(v)
+        item.addFields({ line1: v.show, line2: (code + "  " + title).Trim(), line3: watchState(v),
+            smallLabel: (v.show + "  " + code).Trim() })
+    else
+        line2 = ""
+        if v.kind = "movie" and v.year <> invalid then line2 = v.year.ToStr()
+        if v.kind = "clip" and v.uploader <> invalid then line2 = v.uploader
+        item.addFields({ line1: title, line2: line2, line3: watchState(v), smallLabel: title })
+    end if
     item.url = v.url
     item.HDPOSTERURL = v.thumbnail
     item.HDGRIDPOSTERURL = v.thumbnail
@@ -38,6 +50,15 @@ function watchState(v as Object) as String
         return Int((v.remaining + 59) / 60).ToStr() + " min left"
     end if
     return formatDuration(v.duration)
+end function
+
+' "S2:E1", "E5", or "" when the episode has no numbers.
+function episodeCode(v as Object) as String
+    code = ""
+    if v.season <> invalid then code = "S" + v.season.ToStr() + ":"
+    if v.episode <> invalid then code = code + "E" + v.episode.ToStr()
+    if code.Right(1) = ":" then code = code.Left(code.Len() - 1)
+    return code
 end function
 
 ' "S1 E12  Title", or just the title for anything that is not an episode.

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- One card in a home row. Small: a 512x288 picture and one line of text.
+     Expanded (the selected card of the selected row): the picture grows to
+     960x540, with three lines under it. HomeRow sets x and expanded; the card
+     animates itself there. -->
+<component name="HomeCard" extends="Group">
+  <interface>
+    <field id="itemContent" type="node" onChange="onContent" />
+    <!-- Place in the row, in pixels. -->
+    <field id="x" type="float" onChange="onX" />
+    <field id="expanded" type="boolean" onChange="onExpanded" />
+    <!-- false: jump to the new x / size at once (first layout, refresh). -->
+    <field id="animate" type="boolean" value="false" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/HomeCard.brs" />
+  <children>
+    <Group id="root">
+      <Group id="pic">
+        <!-- Shows through when there is no picture. -->
+        <Rectangle width="512" height="288" color="0x262626FF" />
+        <Poster id="poster" width="512" height="288" loadWidth="512" loadHeight="288" loadDisplayMode="scaleToFill" />
+        <!-- Full-size picture, loaded only while expanded. -->
+        <Poster id="bigPoster" width="512" height="288" loadWidth="960" loadHeight="540" loadDisplayMode="scaleToFill" />
+        <Rectangle id="track" translation="[0,284]" width="512" height="4" color="0xFFFFFF40" visible="false" />
+        <Rectangle id="bar" translation="[0,284]" width="0" height="4" color="0xE50914FF" visible="false" />
+        <Group id="badge" translation="[396,10]" visible="false">
+          <Rectangle width="106" height="30" color="0x000000B3" />
+          <Label text="Watched" width="106" height="30" horizAlign="center" vertAlign="center" font="font:SmallestBoldSystemFont" color="0xFFFFFFFF" />
+        </Group>
+      </Group>
+      <Label id="small" translation="[0,300]" width="512" font="font:SmallSystemFont" color="0xBDBDBDFF" />
+      <Group id="info" translation="[0,556]" visible="false">
+        <Label id="line1" width="960" font="font:MediumBoldSystemFont" color="0xFFFFFFFF" />
+        <Label id="line2" translation="[0,50]" width="960" font="font:SmallSystemFont" color="0x8C8C8CFF" />
+        <Label id="line3" translation="[0,92]" width="960" font="font:SmallSystemFont" color="0xD4D4D4FF" />
+      </Group>
+    </Group>
+    <Animation id="moveAnim" duration="0.22" easeFunction="outQuad">
+      <Vector2DFieldInterpolator id="moveTo" key="[0.0, 1.0]" fieldToInterp="root.translation" />
+    </Animation>
+    <Animation id="growAnim" duration="0.22" easeFunction="outQuad">
+      <Vector2DFieldInterpolator id="growTo" key="[0.0, 1.0]" fieldToInterp="pic.scale" />
+    </Animation>
+  </children>
+</component>

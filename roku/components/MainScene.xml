@@ -5,52 +5,45 @@
   <children>
     <Rectangle color="0x0A0A0AFF" width="1920" height="1080" />
 
-    <!-- Home banner: the last played video (or the newest). Down goes to the rows,
-         which then move up and take the whole screen; Up on the first row comes back. -->
-    <Group id="hero" visible="false">
-      <Poster id="heroArt" width="1920" height="640" loadDisplayMode="scaleToFill" />
-      <Rectangle width="1920" height="640" color="0x0A0A0A80" />
-      <Rectangle width="1180" height="640" color="0x0A0A0AB3" />
-      <Rectangle translation="[0,600]" width="1920" height="40" color="0x0A0A0AFF" />
-      <Label id="heroKicker" translation="[96,230]" font="font:SmallBoldSystemFont" color="0x60A5FAFF" />
-      <Label id="heroTitle" translation="[96,272]" width="1040" wrap="true" maxLines="2" font="font:LargeBoldSystemFont" />
-      <Label id="heroSub" translation="[96,400]" width="1040" font="font:MediumSystemFont" color="0xD4D4D4FF" />
-      <ButtonGroup id="heroButtons" translation="[96,470]" layoutDirection="horiz" itemSpacings="[24]" minWidth="260" />
+    <!-- Rows of cards. The selected card grows; after a while it plays a preview. -->
+    <HomeScreen id="home" />
+
+    <!-- Details screen, back layer: the big picture. The preview plays on top of
+         it, and the details text (DetailsScreen) on top of that. -->
+    <Group id="detailsBack" visible="false">
+      <Rectangle color="0x0A0A0AFF" width="1920" height="1080" />
+      <Poster id="detailsArt" translation="[640,0]" width="1280" height="720" loadWidth="1280" loadHeight="720" loadDisplayMode="scaleToFill" />
     </Group>
 
-    <Label id="header" text="Stream Kubenex" translation="[96,48]" font="font:LargeBoldSystemFont" />
-    <Label id="status" text="Loading..." translation="[96,108]" font="font:SmallSystemFont" color="0xA3A3A3FF" />
-    <!-- Continue Watching, Recently added, TV Shows, Movies, Clips. Empty rows are left out. -->
-    <RowList id="rows"
-      translation="[96,170]"
-      itemComponentName="PosterItem"
-      numRows="2"
-      itemSize="[1728,430]"
-      itemSpacing="[0,30]"
-      rowItemSize="[[480,360]]"
-      rowItemSpacing="[[36,0]]"
-      showRowLabel="[true]"
-      rowLabelOffset="[[0,14]]"
-      rowLabelFont="font:MediumBoldSystemFont"
-      rowFocusAnimationStyle="floatingFocus"
-      vertFocusAnimationStyle="floatingFocus" />
+    <!-- Preview: the focused video, with sound, inside its card (home) or behind
+         the details text. It never reports progress. -->
+    <Group id="preview" visible="false">
+      <Video id="previewVideo" enableUI="false" width="960" height="540" />
+      <Group id="previewProgress">
+        <Rectangle id="previewTrack" height="7" color="0xFFFFFF40" />
+        <Rectangle id="previewBar" width="0" height="7" color="0xE50914FF" />
+      </Group>
+    </Group>
+    <Timer id="previewTimer" repeat="false" duration="10" />
+
+    <DetailsScreen id="details" visible="false" />
     <ShowScreen id="showScreen" visible="false" />
     <Video id="video" width="1920" height="1080" visible="false" />
 
     <!-- Player overlays. They take focus while visible, so OK presses them. -->
-    <Group id="skipIntro" translation="[1480,880]" visible="false">
-      <Button id="skipButton" text="Skip intro" minWidth="320" showFocusFootprint="true" />
+    <Group id="skipIntro" translation="[1440,880]" visible="false">
+      <ButtonRow id="skipButton" minWidth="320" />
     </Group>
     <Group id="upNext" translation="[960,700]" visible="false">
-      <Rectangle width="900" height="300" color="0x000000D9" />
-      <Label id="upNextTitle" translation="[32,24]" width="836" wrap="true" maxLines="2" font="font:MediumBoldSystemFont" />
-      <Label id="upNextCount" translation="[32,124]" width="836" wrap="true" maxLines="2" font="font:SmallSystemFont" color="0xA3A3A3FF" />
-      <Button id="upNextButton" translation="[32,200]" text="Play now" minWidth="280" showFocusFootprint="true" />
+      <Poster uri="pkg:/images/panel.9.png" width="900" height="300" blendColor="0x000000D9" />
+      <Label id="upNextTitle" translation="[40,28]" width="820" wrap="true" maxLines="2" font="font:MediumBoldSystemFont" />
+      <Label id="upNextCount" translation="[40,124]" width="820" wrap="true" maxLines="2" font="font:SmallSystemFont" color="0xBDBDBDFF" />
+      <ButtonRow id="upNextButton" translation="[40,196]" minWidth="280" />
     </Group>
-    <!-- While paused: Resume, Previous, Play from beginning, Next. Sits above the
-         Roku's own progress bar. -->
+    <!-- While paused: Resume, Previous, Play from beginning, Next, Subtitles.
+         Sits above the Roku's own progress bar. -->
     <Group id="pauseBar" translation="[96,740]" visible="false">
-      <ButtonGroup id="pauseButtons" layoutDirection="horiz" itemSpacings="[20]" minWidth="240" />
+      <ButtonRow id="pauseButtons" minWidth="220" />
     </Group>
     <Timer id="countdown" repeat="true" duration="1" />
 

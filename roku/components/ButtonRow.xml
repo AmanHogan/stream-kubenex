@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- A row of FlatButtons. Give it focus; Left and Right move the highlight, OK
+     sets "selected". Up, Down and Back go to the parent. -->
+<component name="ButtonRow" extends="Group">
+  <interface>
+    <field id="buttons" type="array" onChange="onButtons" />
+    <field id="minWidth" type="integer" value="240" />
+    <field id="spacing" type="integer" value="20" />
+    <!-- In and out: the highlighted button. -->
+    <field id="focusIndex" type="integer" onChange="showHighlight" />
+    <!-- Out: index of the button pressed with OK. -->
+    <field id="selected" type="integer" alwaysNotify="true" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/ButtonRow.brs" />
+  <children>
+    <Group id="items" />
+  </children>
+</component>

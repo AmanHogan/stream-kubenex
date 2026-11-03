@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- One flat, rounded button: white with dark text when highlighted, dark grey
+     otherwise. No icon. ButtonRow lays these out and moves the highlight. -->
+<component name="FlatButton" extends="Group">
+  <interface>
+    <field id="text" type="string" onChange="onText" />
+    <field id="minWidth" type="integer" value="240" onChange="onText" />
+    <field id="highlighted" type="boolean" onChange="onHighlighted" />
+    <!-- Out: the width after the text is set. -->
+    <field id="width" type="integer" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/FlatButton.brs" />
+  <children>
+    <Poster id="bg" uri="pkg:/images/btn.9.png" height="72" blendColor="0x333333FF" />
+    <Label id="label" height="72" horizAlign="center" vertAlign="center" font="font:SmallBoldSystemFont" color="0xFFFFFFFF" />
+  </children>
+</component>

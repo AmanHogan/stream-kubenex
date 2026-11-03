@@ -3,10 +3,9 @@
 ' so the progress bars, Continue Watching and Watched badges stay current.
 
 sub init()
-    m.rows = m.top.findNode("rows")
+    m.home = m.top.findNode("home")
     m.showScreen = m.top.findNode("showScreen")
     m.video = m.top.findNode("video")
-    m.status = m.top.findNode("status")
     m.skip = m.top.findNode("skipIntro")
     m.skipButton = m.top.findNode("skipButton")
     m.upNext = m.top.findNode("upNext")
@@ -15,24 +14,43 @@ sub init()
     m.upNextButton = m.top.findNode("upNextButton")
     m.countdown = m.top.findNode("countdown")
     m.dialog = m.top.findNode("dialog")
-    m.hero = m.top.findNode("hero")
-    m.heroButtons = m.top.findNode("heroButtons")
     m.pauseBar = m.top.findNode("pauseBar")
     m.pauseButtons = m.top.findNode("pauseButtons")
+    m.details = m.top.findNode("details")
+    m.detailsBack = m.top.findNode("detailsBack")
+    m.detailsArt = m.top.findNode("detailsArt")
+    m.preview = m.top.findNode("preview")
+    m.previewVideo = m.top.findNode("previewVideo")
+    m.previewProgress = m.top.findNode("previewProgress")
+    m.previewTrack = m.top.findNode("previewTrack")
+    m.previewBar = m.top.findNode("previewBar")
+    m.previewTimer = m.top.findNode("previewTimer")
+    ' enableUI="false" hides the player's own bars; older firmware may lack it.
+    for each bar in [m.previewVideo.bufferingBar, m.previewVideo.retrievingBar, m.previewVideo.trickPlayBar]
+        if bar <> invalid then bar.visible = false
+    end for
 
-    m.rows.observeField("rowItemSelected", "onRowItemSelected")
+    m.home.observeField("focusedItem", "onHomeFocus")
+    m.home.observeField("selectedItem", "onHomeSelected")
+    m.home.observeField("playItem", "onHomePlay")
+    m.details.observeField("action", "onDetailsAction")
+    m.details.observeField("closed", "onDetailsClosed")
+    m.previewTimer.observeField("fire", "startPreview")
+    m.previewVideo.observeField("state", "onPreviewState")
+    m.previewVideo.observeField("position", "updatePreviewBar")
     m.showScreen.observeField("selectedVideoId", "onShowVideoSelected")
     m.showScreen.observeField("menuRequest", "onShowMenu")
     m.showScreen.observeField("closed", "onShowClosed")
     m.video.observeField("state", "onVideoState")
     m.video.observeField("position", "onVideoPosition")
-    m.skipButton.observeField("buttonSelected", "onSkipPressed")
-    m.upNextButton.observeField("buttonSelected", "playNext")
+    m.skipButton.buttons = ["Skip intro"]
+    m.skipButton.observeField("selected", "onSkipPressed")
+    m.upNextButton.buttons = ["Play now"]
+    m.upNextButton.observeField("selected", "playNext")
     m.countdown.observeField("fire", "onCountdown")
     m.dialog.observeField("selected", "onDialogSelected")
     m.dialog.observeField("cancelled", "onDialogCancelled")
-    m.heroButtons.observeField("buttonSelected", "onHeroButton")
-    m.pauseButtons.observeField("buttonSelected", "onPauseButton")
+    m.pauseButtons.observeField("selected", "onPauseButton")
 
     m.api = CreateObject("roSGNode", "ApiTask")
     m.api.observeField("completed", "onApiCompleted")
@@ -42,12 +60,11 @@ sub init()
 
     m.library = invalid
     m.videos = {}
-    m.current = invalid     ' the video playing now (an entry of m.videos)
+    m.current = invalid       ' the video playing now (an entry of m.videos)
     m.choices = []
-    m.heroVideo = invalid   ' the video in the home banner
-    m.heroActions = []
     m.pauseActions = []
-    m.homeFocus = "hero"    ' hero | rows: where focus goes back to on the home screen
+    m.detailsVideo = invalid  ' the video on the details screen
+    m.previewing = invalid    ' the video in the preview
     ' Subtitle choice, kept on this Roku: "off", or "<language>" / "<language>:sdh".
     m.prefs = CreateObject("roRegistrySection", "prefs")
     m.subsApplied = false
@@ -60,7 +77,7 @@ end sub
 ' --- library ------------------------------------------------------------------
 
 sub loadLibrary()
-    if m.library = invalid then m.status.text = "Loading..."
+    if m.library = invalid then m.home.status = "Loading..."
     ' Network calls must run in a Task node, never on the render thread.
     m.task = CreateObject("roSGNode", "LibraryTask")
     m.task.observeField("rows", "onLibraryLoaded")
@@ -71,114 +88,210 @@ end sub
 sub onLibraryLoaded()
     m.library = m.task.library
     m.videos = m.task.videos
-    focused = m.rows.rowItemFocused
-    m.rows.content = m.task.rows
-    setHero(m.library.hero)
-    rowCount = m.task.rows.getChildCount()
-    if rowCount = 0
-        m.status.text = "No videos yet. Add one from the web form, then press * and Refresh."
-        return
+    m.home.content = m.task.rows
+    if m.task.rows.getChildCount() = 0
+        m.home.status = "No videos yet. Add one from the web form, then press * and Refresh."
+    else
+        m.home.status = "OK for details   " + Chr(183) + "   Play to play   " + Chr(183) + "   * for more"
     end if
-    m.status.text = "OK opens or plays  -  * for more"
-    ' Keep the place on the home screen after a refresh.
-    if focused <> invalid and focused.Count() = 2 and focused[0] < rowCount
-        row = m.task.rows.getChild(focused[0])
-        if focused[1] < row.getChildCount() then m.rows.jumpToRowItem = focused
-    end if
-    ' A refresh while a show is open updates that show in place.
+    ' A refresh while a show or a details screen is open updates it in place.
     if m.showScreen.visible
-        for each s in m.library.shows
-            if s.name = m.showScreen.show.name then m.showScreen.show = s
-        end for
+        s = findShow(m.showScreen.show.name)
+        if s <> invalid then m.showScreen.show = s
     end if
-    if not m.showScreen.visible and not m.video.visible and not m.dialog.visible then focusHome()
+    if m.details.visible and m.detailsVideo <> invalid
+        v = m.videos[m.detailsVideo.id]
+        if v <> invalid then setDetails(v)
+    end if
+    if not m.showScreen.visible and not m.video.visible and not m.dialog.visible and not m.details.visible then focusHome()
 end sub
 
-' --- home banner ----------------------------------------------------------------
-
-sub setHero(v as Dynamic)
-    m.heroVideo = v
-    if v = invalid
-        m.hero.visible = false
-        m.homeFocus = "rows"
-        m.rows.translation = [96, 170]
-        return
-    end if
-    m.top.findNode("heroArt").uri = v.art
-    position = intOr(v.position, 0)
-    ' The server takes the hero from Continue Watching when there is anything in it.
-    cont = m.library["continue"]
-    fromContinue = cont <> invalid and cont.Count() > 0 and cont[0].id = v.id
-    if position > 0
-        m.top.findNode("heroKicker").text = "CONTINUE WATCHING"
-    else if fromContinue
-        m.top.findNode("heroKicker").text = "UP NEXT"
-    else
-        m.top.findNode("heroKicker").text = "RECENTLY ADDED"
-    end if
-    if v.kind = "episode" and v.show <> invalid
-        m.top.findNode("heroTitle").text = v.show
-        m.top.findNode("heroSub").text = episodeLabel(v) + "  -  " + watchState(v)
-    else
-        m.top.findNode("heroTitle").text = v.title
-        m.top.findNode("heroSub").text = watchState(v)
-    end if
-
-    m.heroActions = []
-    if position > 0
-        m.heroActions.Push({ label: "Resume", action: "play", start: position })
-        m.heroActions.Push({ label: "Play from beginning", action: "play", start: 0 })
-    else
-        m.heroActions.Push({ label: "Play", action: "play", start: 0 })
-    end if
-    if v.kind = "episode" and v.show <> invalid then m.heroActions.Push({ label: "Go to show", action: "show" })
-    labels = []
-    for each a in m.heroActions
-        labels.Push(a.label)
+function findShow(name as Dynamic) as Dynamic
+    if m.library = invalid or name = invalid then return invalid
+    for each s in m.library.shows
+        if s.name = name then return s
     end for
-    m.heroButtons.buttons = labels
-    if m.homeFocus = "hero" then showHeroLayout()
+    return invalid
+end function
+
+sub onLibraryError()
+    m.home.status = "Cannot load library: " + m.task.error + "  -  press * to retry"
 end sub
 
-' The banner on top, one row of cards under it.
-sub showHeroLayout()
-    m.hero.visible = true
-    m.rows.translation = [96, 660]
-end sub
-
-' No banner: the rows take the whole screen.
-sub showRowsLayout()
-    m.hero.visible = false
-    m.rows.translation = [96, 170]
-end sub
+' --- home screen ----------------------------------------------------------------
 
 sub focusHome()
-    if m.homeFocus = "hero" and m.heroVideo <> invalid
-        showHeroLayout()
-        m.heroButtons.setFocus(true)
-    else if m.rows.content <> invalid and m.rows.content.getChildCount() > 0
-        m.homeFocus = "rows"
-        showRowsLayout()
-        m.rows.setFocus(true)
+    m.home.setFocus(true)
+    schedulePreview()
+end sub
+
+sub onHomeFocus()
+    if m.home.isInFocusChain() then schedulePreview()
+end sub
+
+' OK on a card: a show opens its seasons; a video opens its details.
+sub onHomeSelected()
+    item = m.home.selectedItem
+    if item = invalid then return
+    if item.itemType = "show"
+        stopPreview()
+        m.showScreen.show = m.library.shows[item.showIndex]
     else
-        m.top.setFocus(true)
+        openDetails(m.videos[item.videoId])
     end if
 end sub
 
-sub onHeroButton()
-    a = m.heroActions[m.heroButtons.buttonSelected]
-    v = m.heroVideo
+' Play on a card plays at once, from where it stopped.
+sub onHomePlay()
+    item = m.home.playItem
+    if item = invalid then return
+    if item.itemType = "show"
+        stopPreview()
+        m.showScreen.show = m.library.shows[item.showIndex]
+    else
+        playResume(m.videos[item.videoId])
+    end if
+end sub
+
+sub playResume(v as Dynamic)
+    if v = invalid then return
+    start = 0
+    if v.watched <> true then start = intOr(v.position, 0)
+    play(v, start)
+end sub
+
+' --- details screen ---------------------------------------------------------------
+
+sub openDetails(v as Dynamic)
+    if v = invalid then return
+    setDetails(v)
+    m.detailsBack.visible = true
+    m.details.visible = true
+    m.details.callFunc("focusButtons", {})
+    ' A preview of this video that already plays moves behind the details text.
+    if m.previewing <> invalid and m.previewing.id = v.id
+        placePreview()
+    else
+        schedulePreview()
+    end if
+end sub
+
+sub setDetails(v as Object)
+    m.detailsVideo = v
+    show = invalid
+    if v.kind = "episode" then show = findShow(v.show)
+    if show = invalid then show = {}
+    ' The show first: onVideo reads it.
+    m.details.show = show
+    m.details.video = v
+    m.detailsArt.uri = v.art
+end sub
+
+sub closeDetails()
+    m.details.visible = false
+    m.detailsBack.visible = false
+    m.detailsVideo = invalid
+    if m.previewing <> invalid then placePreview()
+end sub
+
+sub onDetailsClosed()
+    closeDetails()
+    focusHome()
+end sub
+
+sub onDetailsAction()
+    a = m.details.action
+    v = m.detailsVideo
+    if v = invalid then return
     if a.action = "play"
         play(v, a.start)
     else if a.action = "show"
-        for each s in m.library.shows
-            if s.name = v.show then m.showScreen.show = s
-        end for
+        ' The details screen stays under the show screen; Back returns to it.
+        s = findShow(v.show)
+        if s <> invalid
+            stopPreview()
+            m.showScreen.show = s
+        end if
     end if
 end sub
 
-sub onLibraryError()
-    m.status.text = "Cannot load library: " + m.task.error + "  -  press * to retry"
+' --- preview ------------------------------------------------------------------------
+' After previewTimer (10 s) on a video card or a details screen, that video plays
+' with sound: inside the card, or behind the details text. It starts where you
+' stopped, never reports progress, and stops when the selection changes.
+
+' The video to preview now, or invalid.
+function previewCandidate() as Dynamic
+    if m.video.visible or m.showScreen.visible or m.dialog.visible then return invalid
+    if m.details.visible then return m.detailsVideo
+    item = m.home.focusedItem
+    if item = invalid or item.itemType <> "video" then return invalid
+    return m.videos[item.videoId]
+end function
+
+sub schedulePreview()
+    v = previewCandidate()
+    ' Same video (a refresh, Back from its details): let it play on.
+    if v <> invalid and m.previewing <> invalid and m.previewing.id = v.id then return
+    stopPreview()
+    if v <> invalid then m.previewTimer.control = "start"
+end sub
+
+sub startPreview()
+    v = previewCandidate()
+    if v = invalid then return
+    content = CreateObject("roSGNode", "ContentNode")
+    content.url = v.url
+    content.streamFormat = "mp4"
+    if v.watched <> true and intOr(v.position, 0) > 0 then content.PlayStart = intOr(v.position, 0)
+    m.previewing = v
+    placePreview()
+    m.previewVideo.content = content
+    m.previewVideo.control = "play"
+end sub
+
+' Inside the expanded card on the home screen; the big picture on the details screen.
+sub placePreview()
+    if m.details.visible
+        rect = [640, 0, 1280, 720]
+    else
+        rect = m.home.cardRect
+    end if
+    ' The details screen has its own progress bar.
+    m.previewProgress.visible = not m.details.visible
+    m.preview.translation = [rect[0], rect[1]]
+    m.previewVideo.width = rect[2]
+    m.previewVideo.height = rect[3]
+    m.previewTrack.width = rect[2]
+    m.previewProgress.translation = [0, rect[3] - 7]
+    updatePreviewBar()
+end sub
+
+sub onPreviewState()
+    state = m.previewVideo.state
+    ' Show it only once frames come, so the card's picture covers the loading time.
+    if state = "playing" and m.previewing <> invalid
+        m.preview.visible = true
+    else if state = "finished" or state = "error"
+        stopPreview()
+    end if
+end sub
+
+sub updatePreviewBar()
+    v = m.previewing
+    if v = invalid or intOr(v.duration, 0) <= 0
+        m.previewBar.width = 0
+        return
+    end if
+    m.previewBar.width = Int(m.previewTrack.width * m.previewVideo.position / v.duration)
+end sub
+
+sub stopPreview()
+    m.previewTimer.control = "stop"
+    if m.previewing = invalid then return
+    m.previewing = invalid
+    m.preview.visible = false
+    m.previewVideo.control = "stop"
 end sub
 
 ' --- server updates -----------------------------------------------------------
@@ -218,22 +331,12 @@ end sub
 
 ' --- choosing what to play -----------------------------------------------------
 
-sub onRowItemSelected()
-    sel = m.rows.rowItemSelected
-    item = m.rows.content.getChild(sel[0]).getChild(sel[1])
-    if item.itemType = "show"
-        m.showScreen.show = m.library.shows[item.showIndex]
-    else
-        selectVideo(m.videos[item.videoId])
-    end if
-end sub
-
 sub onShowVideoSelected()
     selectVideo(m.videos[m.showScreen.selectedVideoId])
 end sub
 
 sub onShowClosed()
-    focusHome()
+    restoreFocus()
 end sub
 
 ' Part-watched: ask Resume or Start over. Otherwise play from the top.
@@ -253,6 +356,8 @@ end sub
 ' --- player -------------------------------------------------------------------
 
 sub play(v as Object, start as Integer)
+    ' Most Rokus decode one video at a time.
+    stopPreview()
     if m.current <> invalid then saveProgress(Int(m.video.position))
     content = CreateObject("roSGNode", "ContentNode")
     content.url = v.url
@@ -387,7 +492,7 @@ sub showPauseBar()
     m.pauseButtons.buttons = labels
     m.pauseBar.visible = true
     ' Resume first, so OK on a paused video still resumes it.
-    m.pauseButtons.focusButton = 0
+    m.pauseButtons.focusIndex = 0
     m.pauseButtons.setFocus(true)
 end sub
 
@@ -398,7 +503,7 @@ sub hidePauseBar()
 end sub
 
 sub onPauseButton()
-    a = m.pauseActions[m.pauseButtons.buttonSelected]
+    a = m.pauseActions[m.pauseButtons.selected]
     hidePauseBar()
     if a.action = "resume"
         m.video.control = "resume"
@@ -505,7 +610,7 @@ sub onVideoState()
         if m.upNext.visible then m.countdown.control = "start"
     end if
     if state = "error"
-        m.status.text = "Playback error: " + m.video.errorMsg
+        m.home.status = "Playback error: " + m.video.errorMsg
         closeVideo()
     else if state = "finished"
         if m.current <> invalid then saveProgress(intOr(m.current.duration, Int(m.video.position)))
@@ -583,6 +688,9 @@ sub restoreFocus()
         m.video.setFocus(true)
     else if m.showScreen.visible
         m.showScreen.callFunc("restoreFocus", {})
+    else if m.details.visible
+        m.details.callFunc("focusButtons", {})
+        schedulePreview()
     else
         focusHome()
     end if
@@ -605,10 +713,9 @@ end function
 sub openHomeMenu()
     choices = []
     title = "Library"
-    sel = m.rows.rowItemFocused
-    if m.rows.content <> invalid and sel <> invalid and sel.Count() = 2 and sel[0] >= 0
-        item = m.rows.content.getChild(sel[0]).getChild(sel[1])
-        if item <> invalid and item.itemType = "show"
+    item = m.home.focusedItem
+    if item <> invalid
+        if item.itemType = "show"
             show = m.library.shows[item.showIndex]
             ids = []
             for each season in show.seasons
@@ -619,7 +726,7 @@ sub openHomeMenu()
             title = show.name
             choices.Push({ label: "Mark whole show as watched", action: "watched", ids: ids, watched: true })
             choices.Push({ label: "Mark whole show as not watched", action: "watched", ids: ids, watched: false })
-        else if item <> invalid
+        else
             v = m.videos[item.videoId]
             if v <> invalid
                 title = episodeLabel(v)
@@ -699,23 +806,16 @@ function onKeyEvent(key as String, press as Boolean) as Boolean
         return false
     end if
     if m.showScreen.visible then return false
-    ' Home: Down leaves the banner for the rows; Up on the first row goes back.
-    if key = "down" and m.heroButtons.isInFocusChain() and m.rows.content <> invalid and m.rows.content.getChildCount() > 0
-        m.homeFocus = "rows"
-        focusHome()
-        return true
-    end if
-    if key = "up" and m.rows.hasFocus() and m.heroVideo <> invalid
-        m.homeFocus = "hero"
-        focusHome()
-        return true
-    end if
     if key = "options"
-        if m.heroButtons.isInFocusChain() and m.heroVideo <> invalid
-            showMenu(episodeLabel(m.heroVideo), videoChoices(m.heroVideo))
+        if m.details.visible and m.detailsVideo <> invalid
+            showMenu(episodeLabel(m.detailsVideo), videoChoices(m.detailsVideo))
         else
             openHomeMenu()
         end if
+        return true
+    end if
+    if key = "play" and m.details.visible
+        playResume(m.detailsVideo)
         return true
     end if
     return false
