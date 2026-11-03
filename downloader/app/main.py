@@ -39,7 +39,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Res
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import library, playback
+from . import library, playback, subtitles
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 MEDIA_DIR = DATA_DIR / "media"
@@ -129,6 +129,23 @@ ADDED_COLUMNS = {
 
 SHOWS_ADDED_COLUMNS = {"art": "TEXT", "art_version": "INTEGER"}
 
+# Subtitle tracks, one row per WebVTT file <video id>.sub<n>.vtt next to the video.
+SUBTITLES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS subtitles (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id    TEXT NOT NULL,
+    file        TEXT NOT NULL,
+    language    TEXT NOT NULL,              -- ISO 639-2, e.g. eng; und = unknown
+    forced      INTEGER NOT NULL DEFAULT 0, -- only the foreign-language lines
+    sdh         INTEGER NOT NULL DEFAULT 0, -- includes sound descriptions
+    source      TEXT NOT NULL,              -- embedded | upload | download
+    created_at  REAL NOT NULL
+)
+"""
+# Languages yt-dlp fetches a site's subtitles in (its --sub-langs syntax).
+# Auto-generated captions are never fetched.
+SUB_LANGS = [s.strip() for s in os.environ.get("SUB_LANGS", "en.*,eng.*").split(",") if s.strip()]
+
 # Show artwork: converted to JPEG, at most 1920 wide, served by nginx under /media/art/.
 ART_DIR = MEDIA_DIR / "art"
 MAX_ART_BYTES = 15 * 1024 * 1024
@@ -169,10 +186,120 @@ def free_gb() -> float:
 
 
 def remove_files(vid: str) -> None:
-    # Covers the final .mp4/.jpg, yt-dlp leftovers like .f137.mp4 and .part, and the
-    # .src.* / .conv.mp4 files of a conversion.
+    # Covers the final .mp4/.jpg, yt-dlp leftovers like .f137.mp4 and .part, the
+    # .src.* / .conv.mp4 files of a conversion, and the .sub<n>.vtt subtitles.
     for f in MEDIA_DIR.glob(f"{vid}.*"):
         f.unlink(missing_ok=True)
+    with db() as conn:
+        conn.execute("DELETE FROM subtitles WHERE video_id = ?", (vid,))
+
+
+# --- subtitles ------------------------------------------------------------------
+
+def next_subtitle_path(vid: str) -> Path:
+    n = 1
+    while (MEDIA_DIR / f"{vid}.sub{n}.vtt").exists():
+        n += 1
+    return MEDIA_DIR / f"{vid}.sub{n}.vtt"
+
+
+def add_subtitle(vid: str, path: Path, language: str, forced: bool, sdh: bool, source: str) -> int:
+    with db() as conn:
+        cur = conn.execute(
+            "INSERT INTO subtitles (video_id, file, language, forced, sdh, source, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (vid, path.name, language, int(forced), int(sdh), source, time.time()),
+        )
+        return cur.lastrowid
+
+
+def extract_embedded_subtitles(vid: str, src: Path) -> None:
+    """Keep every text subtitle track of an imported or converted file. Best effort:
+    a file whose subtitles cannot be read still imports."""
+    try:
+        tracks = subtitles.text_tracks(src)
+        outs = []
+        for _ in tracks:
+            out = next_subtitle_path(vid)
+            out.touch()  # reserve the name before picking the next one
+            outs.append(out)
+        for t, out, ok in zip(tracks, outs, subtitles.extract(src, tracks, outs)):
+            if ok:
+                add_subtitle(vid, out, t["language"], t["forced"], t["sdh"], "embedded")
+            else:
+                out.unlink(missing_ok=True)
+    except Exception:  # noqa: BLE001 - subtitles are optional
+        pass
+
+
+class _SilentLogger:
+    """yt-dlp logger that drops everything; subtitle fetching is best effort."""
+
+    def debug(self, msg: str) -> None:
+        pass
+
+    info = warning = error = debug
+
+
+def fetch_site_subtitles(vid: str, url: str, headers: dict) -> None:
+    """Ask yt-dlp for the site's own subtitles (no video). Best effort, so a site
+    that fails here does not fail a download that already worked."""
+    opts = {
+        "skip_download": True,
+        "writesubtitles": True,
+        "writeautomaticsub": False,
+        "subtitleslangs": SUB_LANGS,
+        "subtitlesformat": "vtt/srt/ass/best",
+        "outtmpl": {"subtitle": str(MEDIA_DIR / f"{vid}.ytsub.%(ext)s")},
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        "noprogress": True,
+        # Segmented (HLS) subtitles print fragment progress even with noprogress.
+        "logger": _SilentLogger(),
+    }
+    if headers:
+        opts["http_headers"] = headers
+    if IMPERSONATE:
+        opts["impersonate"] = ImpersonateTarget.from_str(IMPERSONATE)
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.extract_info(url, download=True)
+    except Exception:  # noqa: BLE001 - subtitles are optional
+        pass
+    # yt-dlp names them <vid>.ytsub.<lang>.<ext>.
+    for f in sorted(MEDIA_DIR.glob(f"{vid}.ytsub.*")):
+        lang_code = f.name[len(f"{vid}.ytsub."):].rsplit(".", 1)[0]
+        out = next_subtitle_path(vid)
+        # WebVTT from yt-dlp is already clean, and it merges segmented (HLS)
+        # subtitles itself; a second pass through ffmpeg garbles the first cue of
+        # every segment. Only other formats (SRT, ASS) go through ffmpeg.
+        if f.suffix == ".vtt" and subtitles.usable(f):
+            out.write_text(subtitles.repair_vtt(f.read_text(encoding="utf-8", errors="replace")), encoding="utf-8")
+            ok = subtitles.usable(out)
+        else:
+            ok = subtitles.convert_file(f, out)
+        if ok:
+            add_subtitle(vid, out, subtitles.normalize_language(lang_code), False, False, "download")
+        else:
+            out.unlink(missing_ok=True)
+        f.unlink(missing_ok=True)
+
+
+def subtitle_map(conn: sqlite3.Connection) -> dict[str, list[dict]]:
+    """Subtitle tracks by video id: full tracks first, then SDH, then forced."""
+    out: dict[str, list[dict]] = {}
+    for r in conn.execute("SELECT * FROM subtitles ORDER BY forced, sdh, id"):
+        out.setdefault(r["video_id"], []).append({
+            "id": r["id"],
+            "url": f"{PUBLIC_BASE_URL}/media/{r['file']}",
+            "language": r["language"],
+            "label": subtitles.make_label(r["language"], bool(r["forced"]), bool(r["sdh"])),
+            "forced": bool(r["forced"]),
+            "sdh": bool(r["sdh"]),
+            "source": r["source"],
+        })
+    return out
 
 
 # --- download worker ----------------------------------------------------------
@@ -226,6 +353,7 @@ def download(row: sqlite3.Row) -> None:
         mp4 = MEDIA_DIR / f"{vid}.mp4"
         if not mp4.exists():
             raise RuntimeError("yt-dlp finished but produced no MP4.")
+        fetch_site_subtitles(vid, url, headers)
         set_fields(vid, status="ready", progress=1, size_bytes=mp4.stat().st_size)
     except Exception as e:  # yt-dlp and ffmpeg fail in many ways; all mean "this download failed"
         remove_files(vid)
@@ -284,6 +412,7 @@ def fetch(vid: str, url: str, headers: dict, convert: bool) -> None:
         src = next((p for p in MEDIA_DIR.glob(f"{vid}.src.*") if p.suffix not in (".part", ".ytdl")), None)
         if src is None:
             raise RuntimeError("yt-dlp finished but produced no file.")
+        extract_embedded_subtitles(vid, src)
         convert_to_mp4(vid, src)
 
 
@@ -361,6 +490,7 @@ def import_file(row: sqlite3.Row) -> None:
         duration = probe(src)["duration"]
         set_fields(vid, duration=int(duration))
         make_thumbnail(vid, src, duration)
+        extract_embedded_subtitles(vid, src)
         convert_to_mp4(vid, src)
         mp4 = MEDIA_DIR / f"{vid}.mp4"
         set_fields(vid, status="ready", progress=1, size_bytes=mp4.stat().st_size)
@@ -384,6 +514,7 @@ def startup() -> None:
     with db() as conn:
         conn.execute(SCHEMA)
         conn.execute(SHOWS_SCHEMA)
+        conn.execute(SUBTITLES_SCHEMA)
         have_shows = {r["name"] for r in conn.execute("PRAGMA table_info(shows)")}
         for col, sql_type in SHOWS_ADDED_COLUMNS.items():
             if col not in have_shows:
@@ -544,6 +675,9 @@ def list_videos() -> dict:
     with db() as conn:
         rows = [dict(r) for r in conn.execute("SELECT * FROM videos ORDER BY created_at DESC")]
         shows = show_markers(conn)
+        subs = subtitle_map(conn)
+    for r in rows:
+        r["subtitles"] = subs.get(r["id"], [])
     for r in rows:
         if r["status"] == "ready":
             r.update(media_urls(r["id"]))
@@ -643,6 +777,60 @@ def delete_video(vid: str) -> Response:
             raise HTTPException(409, "Video is still being processed; wait for it to finish.")
         conn.execute("DELETE FROM videos WHERE id = ?", (vid,))
     remove_files(vid)
+    return Response(status_code=204)
+
+
+@app.post("/api/videos/{vid}/subtitles", status_code=201, dependencies=[Depends(require_token)])
+async def upload_subtitle(
+    vid: str,
+    request: Request,
+    filename: str = Query(min_length=1, max_length=255),
+    language: str | None = Query(default=None, max_length=20),
+    forced: bool | None = None,
+    sdh: bool | None = None,
+) -> dict:
+    """Add a subtitle file (.srt, .vtt, .ass, .ssa) to a video. The body is the file.
+    Language, forced and SDH come from the query, else from the file name
+    ('Show S01E05.en.srt', 'Movie.eng.forced.srt'), else unknown."""
+    ext = Path(filename).suffix.lower()
+    if ext not in subtitles.UPLOAD_EXTS:
+        raise HTTPException(400, "Subtitles must be .srt, .vtt, .ass or .ssa.")
+    size = int(request.headers.get("content-length") or 0)
+    if not size:
+        raise HTTPException(411, "Content-Length is required.")
+    if size > subtitles.MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "Subtitle files can be at most 5 MB.")
+    with db() as conn:
+        if not conn.execute("SELECT 1 FROM videos WHERE id = ? AND status = 'ready'", (vid,)).fetchone():
+            raise HTTPException(404, "No ready video with that id.")
+    body = await request.body()
+
+    guess = subtitles.guess_from_filename(filename)
+    lang = subtitles.normalize_language(language) if language else guess["language"]
+    tmp = MEDIA_DIR / f".subupload-{uuid.uuid4().hex}{ext}"
+    out = next_subtitle_path(vid)
+    try:
+        tmp.write_bytes(subtitles.to_utf8(body))
+        ok = await anyio.to_thread.run_sync(subtitles.convert_file, tmp, out)
+    finally:
+        tmp.unlink(missing_ok=True)
+    if not ok:
+        out.unlink(missing_ok=True)
+        raise HTTPException(400, "That file has no subtitles ffmpeg can read.")
+    sid = add_subtitle(vid, out, lang, guess["forced"] if forced is None else forced,
+                       guess["sdh"] if sdh is None else sdh, "upload")
+    with db() as conn:
+        return next(s for s in subtitle_map(conn)[vid] if s["id"] == sid)
+
+
+@app.delete("/api/videos/{vid}/subtitles/{sid}", status_code=204, dependencies=[Depends(require_token)])
+def delete_subtitle(vid: str, sid: int) -> Response:
+    with db() as conn:
+        row = conn.execute("SELECT file FROM subtitles WHERE id = ? AND video_id = ?", (sid, vid)).fetchone()
+        if row is None:
+            raise HTTPException(404, "No such subtitle track on that video.")
+        conn.execute("DELETE FROM subtitles WHERE id = ?", (sid,))
+    (MEDIA_DIR / row["file"]).unlink(missing_ok=True)
     return Response(status_code=204)
 
 
@@ -792,7 +980,9 @@ def library_feed() -> dict:
             "FROM videos WHERE status = 'ready' ORDER BY created_at DESC"
         ).fetchall()
         shows = show_markers(conn)
-    videos = playback.enrich([{**dict(r), **media_urls(r["id"])} for r in rows], shows)
+        subs = subtitle_map(conn)
+    videos = playback.enrich(
+        [{**dict(r), **media_urls(r["id"]), "subtitles": subs.get(r["id"], [])} for r in rows], shows)
     for v in videos:
         # Big pictures (home banner, show cards) prefer the show's uploaded artwork.
         v["art"] = shows.get(v.get("show") or "", {}).get("art_url") or v["thumbnail"]

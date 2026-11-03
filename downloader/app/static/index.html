@@ -38,6 +38,12 @@
   li.group { background:none; border:0; padding:14px 2px 4px; margin:0; font-weight:600; }
   li.group span { color:var(--muted); font-weight:400; font-size:13px; }
   li.group.show { font-size:17px; padding-top:22px; }
+  li.subs { display:block; margin-top:-6px; border-top-left-radius:0; border-top-right-radius:0; }
+  .subs-list { margin:6px 0 10px; display:flex; flex-direction:column; gap:4px; }
+  .subs-list button, .subs-add button { padding:3px 10px; font-size:13px; }
+  .subs-add { display:flex; flex-wrap:wrap; gap:12px; align-items:center; font-size:13px; }
+  .subs-add select { padding:4px 6px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); }
+  button.ghost.on { color:var(--accent); border-color:var(--accent); }
   li.group.show img.art { width:96px; height:54px; object-fit:cover; border-radius:4px; vertical-align:middle; margin-right:10px; }
   li.group button { padding:2px 8px; font-size:12px; }
   .seen { color:var(--ok); }
@@ -170,6 +176,9 @@ function row(v) {
     actions.append(el("a", { href: v.url, target: "_blank", textContent: "Play" }));
     actions.append(el("button", { className: "ghost", textContent: v.watched ? "Unwatch" : "Watched",
       title: v.watched ? "Mark as not watched" : "Mark as watched", onclick: () => setWatched([v.id], !v.watched) }));
+    const n = (v.subtitles || []).length;
+    actions.append(el("button", { className: "ghost" + (subsOpen === v.id ? " on" : ""), textContent: n ? `Subtitles (${n})` : "Subtitles",
+      onclick: () => { subsOpen = subsOpen === v.id ? null : v.id; render(); } }));
   }
   // A failed import has no file left to retry; upload it again instead.
   if (v.status === "failed" && v.source !== "upload") actions.append(el("button", { className: "ghost", textContent: "Retry",
@@ -178,7 +187,62 @@ function row(v) {
     onclick: () => { editing = v.id; render(); } }));
   if (!busy) actions.append(el("button", { className: "ghost", textContent: "Delete",
     onclick: () => confirm("Delete this video?") && api("DELETE", `/api/videos/${v.id}`).then(refresh) }));
-  return el("li", {}, thumb, info, actions);
+  const li = el("li", {}, thumb, info, actions);
+  return subsOpen === v.id ? [li, subsPanel(v)] : li;
+}
+
+// --- subtitles --------------------------------------------------------------------
+// While the panel is open the 2-second refresh does not redraw (it would reset the
+// language and checkboxes); adding or deleting a track redraws on purpose.
+let subsOpen = null;
+
+const SUB_LANGS = [["", "From file name"], ["eng", "English"], ["jpn", "Japanese"], ["spa", "Spanish"],
+  ["fre", "French"], ["ger", "German"], ["ita", "Italian"], ["por", "Portuguese"], ["kor", "Korean"], ["chi", "Chinese"]];
+
+function subsPanel(v) {
+  const list = el("div", { className: "subs-list" });
+  for (const s of v.subtitles || []) {
+    list.append(el("div", {},
+      el("span", { textContent: s.label }), el("span", { className: "muted", textContent: ` · ${s.source}` }), " ",
+      el("button", { className: "ghost", textContent: "Delete", onclick: async () => {
+        if (!confirm(`Delete the ${s.label} subtitles?`)) return;
+        await api("DELETE", `/api/videos/${v.id}/subtitles/${s.id}`);
+        refresh(true);
+      } })));
+  }
+  if (!list.children.length) list.append(el("div", { className: "muted", textContent: "No subtitles yet." }));
+
+  const lang = el("select", {}, ...SUB_LANGS.map(([value, text]) => el("option", { value, textContent: text })));
+  const forced = el("input", { type: "checkbox" }), sdh = el("input", { type: "checkbox" });
+  const err = el("span", { className: "muted failed" });
+  function pick() {
+    const input = el("input", { type: "file", accept: ".srt,.vtt,.ass,.ssa" });
+    input.onchange = async () => {
+      const file = input.files[0];
+      if (!file) return;
+      const q = new URLSearchParams({ filename: file.name });
+      if (lang.value) q.set("language", lang.value);
+      if (forced.checked) q.set("forced", "true");
+      if (sdh.checked) q.set("sdh", "true");
+      try {
+        const res = await fetch(`/api/videos/${v.id}/subtitles?${q}`, {
+          method: "POST", headers: { "X-Api-Token": getToken(), "Content-Type": "application/octet-stream" }, body: file });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+        refresh(true);
+      } catch (e) {
+        err.textContent = e.message;
+      }
+    };
+    input.click();
+  }
+  return el("li", { className: "subs" },
+    el("div", { className: "subs-body" },
+      el("strong", { textContent: "Subtitles" }), list,
+      el("div", { className: "subs-add" },
+        el("label", {}, "Language ", lang),
+        el("label", {}, forced, " Forced (foreign lines only)"),
+        el("label", {}, sdh, " SDH"),
+        el("button", { textContent: "Add subtitle file…", onclick: pick }), err)));
 }
 
 // --- editing ------------------------------------------------------------------
@@ -351,7 +415,7 @@ function showRows(list) {
         el("button", { className: "ghost", textContent: "Season watched", onclick: () => setWatched(ids, true) }), " ",
         el("button", { className: "ghost", textContent: "Season unwatched", onclick: () => setWatched(ids, false) })));
     }
-    out.push(row(v));
+    out.push(...[row(v)].flat());
   }
   return out;
 }
@@ -360,9 +424,9 @@ function render() {
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.view === view));
   let rows;
   if (view === "shows") rows = showRows(videos);
-  else if (view === "movies") rows = videos.filter((v) => v.kind === "movie").sort(byTitle).map(row);
-  else if (view === "clips") rows = videos.filter((v) => v.kind === "clip").map(row);
-  else rows = videos.map(row);
+  else if (view === "movies") rows = videos.filter((v) => v.kind === "movie").sort(byTitle).flatMap(row);
+  else if (view === "clips") rows = videos.filter((v) => v.kind === "clip").flatMap(row);
+  else rows = videos.flatMap(row);
   if (!rows.length) rows = [el("li", { className: "group" }, el("span", { textContent: "Nothing here yet." }))];
   $("list").replaceChildren(...rows);
   const shows = [...new Set(videos.map((v) => v.show).filter(Boolean))].sort();
@@ -377,12 +441,12 @@ $("tabs").addEventListener("click", (ev) => {
   render();
 });
 
-async function refresh() {
+async function refresh(force = false) {
   try {
     const data = await api("GET", "/api/videos");
     videos = data.videos;
     shows = data.shows || {};
-    if (editing === null && editingShow === null) render();
+    if (force || (editing === null && editingShow === null && subsOpen === null)) render();
     const d = data.disk;
     $("disk").textContent = `${d.free_gb} GB free of ${d.total_gb} GB · downloads stop below ${d.min_free_gb} GB`;
   } catch (e) {
