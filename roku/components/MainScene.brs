@@ -48,6 +48,11 @@ sub init()
     m.heroActions = []
     m.pauseActions = []
     m.homeFocus = "hero"    ' hero | rows: where focus goes back to on the home screen
+    ' Subtitle choice, kept on this Roku: "off", or "<language>" / "<language>:sdh".
+    m.prefs = CreateObject("roRegistrySection", "prefs")
+    m.subsApplied = false
+    ' Turning subtitles on changes the Roku's own caption setting; put it back on exit.
+    m.savedCaptionMode = invalid
     m.top.setFocus(true)
     loadLibrary()
 end sub
@@ -254,6 +259,14 @@ sub play(v as Object, start as Integer)
     content.title = v.title
     content.streamFormat = "mp4"
     if start > 0 then content.PlayStart = start
+    tracks = []
+    if v.subtitles <> invalid
+        for each t in v.subtitles
+            tracks.Push({ Language: t.language, TrackName: t.url, Description: t.label })
+        end for
+    end if
+    content.SubtitleTracks = tracks
+    m.subsApplied = false
     m.current = v
     m.lastSaved = start
     m.skipDismissed = false
@@ -366,6 +379,7 @@ sub showPauseBar()
     if v.next_id <> invalid and m.videos.DoesExist(v.next_id)
         m.pauseActions.Push({ label: "Next episode", action: "episode", id: v.next_id })
     end if
+    if hasSubtitles(v) then m.pauseActions.Push({ label: "Subtitles", action: "subtitles" })
     labels = []
     for each a in m.pauseActions
         labels.Push(a.label)
@@ -393,11 +407,95 @@ sub onPauseButton()
         m.video.control = "resume"
     else if a.action = "episode"
         play(m.videos[a.id], 0)
+    else if a.action = "subtitles"
+        openSubtitleMenu()
+    end if
+end sub
+
+' --- subtitles ----------------------------------------------------------------------
+' Tracks come from the server (v.subtitles) and are attached in play(). Forced
+' tracks hold only the foreign-language lines, so they show even with subtitles off.
+
+function hasSubtitles(v as Object) as Boolean
+    return v.subtitles <> invalid and v.subtitles.Count() > 0
+end function
+
+' The track to show for the saved choice, or invalid for none.
+function pickSubtitle(tracks as Object, pref as String) as Dynamic
+    forced = invalid
+    for each t in tracks
+        if t.forced = true and forced = invalid then forced = t
+    end for
+    if pref = "off" or pref = "" then return forced
+    parts = pref.Split(":")
+    wantSdh = parts.Count() > 1 and parts[1] = "sdh"
+    sameLanguage = invalid
+    for each t in tracks
+        if t.forced <> true and t.language = parts[0]
+            if (t.sdh = true) = wantSdh then return t
+            if sameLanguage = invalid then sameLanguage = t
+        end if
+    end for
+    if sameLanguage <> invalid then return sameLanguage
+    return forced
+end function
+
+sub applySubtitles()
+    if m.current = invalid or not hasSubtitles(m.current) then return
+    m.subsApplied = true
+    showSubtitle(pickSubtitle(m.current.subtitles, m.prefs.Read("subtitles")))
+end sub
+
+sub showSubtitle(t as Dynamic)
+    if m.savedCaptionMode = invalid then m.savedCaptionMode = m.video.globalCaptionMode
+    if t = invalid
+        m.video.globalCaptionMode = "Off"
+        return
+    end if
+    ' The player may list a side-loaded track under a longer name than its URL.
+    name = t.url
+    available = m.video.availableSubtitleTracks
+    if available <> invalid
+        for each a in available
+            if a.TrackName = t.url or Instr(1, a.TrackName, t.url) > 0 then name = a.TrackName
+        end for
+    end if
+    m.video.subtitleTrack = name
+    m.video.globalCaptionMode = "On"
+end sub
+
+sub openSubtitleMenu()
+    v = m.current
+    if v = invalid or not hasSubtitles(v) then return
+    shown = pickSubtitle(v.subtitles, m.prefs.Read("subtitles"))
+    mark = "Off"
+    if shown <> invalid and shown.forced <> true then mark = shown.label
+    choices = [{ label: "Off", action: "subtitle", pref: "off" }]
+    for each t in v.subtitles
+        if t.forced <> true
+            pref = t.language
+            if t.sdh = true then pref = pref + ":sdh"
+            choices.Push({ label: t.label, action: "subtitle", pref: pref })
+        end if
+    end for
+    for each c in choices
+        if c.label = mark then c.label = c.label + "   (on)"
+    end for
+    m.video.control = "pause"
+    showMenu("Subtitles", choices)
+end sub
+
+sub restoreCaptionMode()
+    if m.savedCaptionMode <> invalid
+        m.video.globalCaptionMode = m.savedCaptionMode
+        m.savedCaptionMode = invalid
     end if
 end sub
 
 sub onVideoState()
     state = m.video.state
+    ' Subtitle tracks are known once the video plays; apply the saved choice then.
+    if state = "playing" and not m.subsApplied then applySubtitles()
     if state = "paused"
         ' The menu pauses the video too; it has its own choices.
         if not m.dialog.visible and not m.upNext.visible then showPauseBar()
@@ -426,6 +524,7 @@ sub closeVideo()
     hideOverlays()
     m.video.control = "stop"
     m.video.visible = false
+    restoreCaptionMode()
     restoreFocus()
     reloadAfterUpdates()
 end sub
@@ -468,6 +567,14 @@ sub runChoice(c as Object)
     else if c.action = "refresh"
         loadLibrary()
         restoreFocus()
+    else if c.action = "subtitle"
+        m.prefs.Write("subtitles", c.pref)
+        m.prefs.Flush()
+        applySubtitles()
+        m.video.control = "resume"
+        m.video.setFocus(true)
+    else if c.action = "subtitlemenu"
+        openSubtitleMenu()
     end if
 end sub
 
@@ -548,6 +655,7 @@ sub openPlayerMenu()
         choices.Push({ label: "Previous: " + episodeLabel(m.videos[v.prev_id]), action: "previous", id: v.prev_id })
     end if
     choices.Push({ label: "Play from beginning", action: "startover" })
+    if hasSubtitles(v) then choices.Push({ label: "Subtitles", action: "subtitlemenu" })
     m.video.control = "pause"
     showMenu(episodeLabel(v), choices)
 end sub

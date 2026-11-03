@@ -130,6 +130,25 @@ git push ──► Jenkins (polls every 3 min) ──► kaniko builds downloade
    episode counts as watched and **Up next** counts down 10 s (OK plays now, Back keeps watching).
 6. Debug output: `nc <roku ip> 8085`.
 
+## Subtitles
+
+Subtitles are WebVTT files next to each video (`media/<id>.sub<n>.vtt`), listed per video in
+`/api/library`. They come from three places:
+
+- **Imported files:** every text track is kept (SRT, ASS, mov_text, WebVTT), with its
+  language and Forced/SDH flags. Image tracks (Blu-ray PGS, DVD VobSub) are pictures, not text,
+  and are skipped.
+- **Downloads:** yt-dlp also fetches the site's own subtitles in `SUB_LANGS` (default English;
+  never auto-generated captions). Best effort: a site without subtitles still downloads.
+- **By hand:** web form → **Subtitles** on a video → **Add subtitle file…** (.srt, .vtt, .ass,
+  .ssa; any encoding). The language comes from the menu or the file name
+  (`Show S01E05.en.srt`, `Movie.eng.forced.srt`). Use this for videos imported before subtitles
+  existed, whose original files are gone.
+
+On the TV: **Subtitles** in the pause bar or the `*` menu (Off, or a track). The choice is
+remembered on the Roku for the next video. With subtitles off, a **Forced** track still shows
+(foreign-language lines only, like the Dothraki scenes in Game of Thrones).
+
 ## Watch progress
 
 The Roku reports the position to the server every 15 seconds and on stop
