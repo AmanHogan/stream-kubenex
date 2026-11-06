@@ -114,14 +114,17 @@ git push ──► Jenkins (polls every 3 min) ──► kaniko builds downloade
 1. Enable Developer Mode on the Roku: Home ×3, Up ×2, Right, Left, Right, Left, Right. Set a password.
 2. `ROKU_IP=<roku ip> scripts/roku-sideload.sh` (it prompts for the dev password)
    (or run `scripts/roku-package.sh` and upload `build/stream-kubenex-roku.zip` at `http://<roku ip>`).
-3. Home shows rows of cards on a black page: Continue Watching, Recently added, TV Shows,
-   Movies, Clips. Cards show the **box art** of their show or movie (without box art: the
+3. Home opens on the **hero**: the last watched video, full screen, with its logo, episode,
+   synopsis, progress, **Resume** and **Go to show**. After 15 seconds it plays behind the
+   text with sound, from where you stopped (it never changes your progress). Down goes to the
+   rows; Up on the first row comes back. Back from the rows returns to the hero.
+   Rows of cards on a black page: Continue Watching, TV Shows, Movies, Clips. Cards show the **box art** of their show or movie (without box art: the
    picture, cropped, with the name on it). The selected card of the selected row grows sideways
    to the **background** picture at the same height, with three lines under it: the show (or
    title), the episode in grey, and the time left. After 10 seconds on a video card, the video
    plays inside the card with sound, from where you stopped (it never changes your progress).
-   Up/Down move between rows, Left/Right along a row. Back goes to the first card; Back there
-   leaves the channel. **Play** plays the selected video at once.
+   Up/Down move between rows, Left/Right along a row. Back on the hero leaves the channel.
+   **Play** plays the selected video at once.
    OK on a video opens its **details screen**: the logo, year, seasons, the episode, the
    synopsis, and Resume, Play from beginning, Go to show (stacked). OK on a show opens its
    **show page**: logo, year and seasons (with episode counts) on the left, that season's

@@ -31,7 +31,6 @@ sub load()
 
     root = CreateObject("roSGNode", "ContentNode")
     addVideoRow(root, "Continue Watching", json["continue"])
-    addVideoRow(root, "Recently added", json.recent)
     addShowRow(root, json.shows)
     addVideoRow(root, "Movies", json.movies)
     addVideoRow(root, "Clips", json.clips)

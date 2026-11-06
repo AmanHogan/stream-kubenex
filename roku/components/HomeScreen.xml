@@ -1,30 +1,65 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- The home screen: rows of cards (Continue Watching, Recently added, TV Shows,
-     Movies, Clips). The active row sits under the header; its selected card is
-     expanded. Rows above it slide off the top. Give this node focus. -->
+<!-- The home screen. On top, the hero: the last watched video, full screen, with
+     its logo, episode, synopsis, progress, Resume and Go to show. After 15 s it
+     plays behind the text, with sound. Down goes to the rows (Continue Watching,
+     TV Shows, Movies, Clips); Up on the first row comes back. In the rows, the
+     active row sits under the header and its selected card is expanded. Give this
+     node focus. -->
 <component name="HomeScreen" extends="Group">
   <interface>
     <!-- From LibraryTask: one child per row, one grandchild per card. -->
     <field id="content" type="node" onChange="onContent" />
+    <!-- The hero video from /api/library ({} = none) and its show ({} = none).
+         Set heroShow, then hero, then content. -->
+    <field id="hero" type="assocarray" onChange="onHero" />
+    <field id="heroShow" type="assocarray" />
+    <!-- The small red line over the hero: "CONTINUE WATCHING", "UP NEXT", "NEW". -->
+    <field id="heroKicker" type="string" />
     <field id="status" type="string" onChange="onStatus" />
-    <!-- Out: the selected card's ContentNode, on every move and after a refresh. -->
+    <!-- Out: the selected card's ContentNode, on every move and after a refresh;
+         invalid while the hero has focus. -->
     <field id="focusedItem" type="node" alwaysNotify="true" />
     <!-- Out: OK on a card. -->
     <field id="selectedItem" type="node" alwaysNotify="true" />
     <!-- Out: Play on a card. -->
     <field id="playItem" type="node" alwaysNotify="true" />
+    <!-- Out: a hero button or Play on the hero. { action: "play", start } or { action: "show" } -->
+    <field id="heroAction" type="assocarray" alwaysNotify="true" />
+    <!-- Out: true while the hero has focus. -->
+    <field id="heroFocused" type="boolean" />
     <!-- Out: where the expanded picture is on screen: [x, y, width, height]. -->
     <field id="cardRect" type="array" />
+    <!-- Stop the hero video now (MainScene calls it before playing anything). -->
+    <function name="stopHero" />
   </interface>
   <script type="text/brightscript" uri="pkg:/components/HomeScreen.brs" />
+  <script type="text/brightscript" uri="pkg:/components/util.brs" />
   <children>
+    <Group id="hero" visible="false">
+      <Poster id="heroArt" width="1920" height="1080" loadWidth="1920" loadHeight="1080" loadDisplayMode="scaleToZoom" />
+      <Video id="heroVideo" enableUI="false" width="1920" height="1080" visible="false" />
+      <Poster uri="pkg:/images/fade_left.png" width="1250" height="1080" loadDisplayMode="scaleToFill" />
+      <Poster uri="pkg:/images/fade_bottom.png" translation="[0,560]" width="1920" height="520" loadDisplayMode="scaleToFill" />
+      <Label id="heroKicker" translation="[96,150]" font="font:SmallBoldSystemFont" color="0xE50914FF" />
+      <Logo id="heroLogo" translation="[96,196]" maxWidth="760" maxHeight="240" />
+      <Label id="heroMeta" translation="[96,0]" width="1000" font="font:SmallSystemFont" color="0xBDBDBDFF" />
+      <Label id="heroEpisode" translation="[96,0]" width="1000" font="font:MediumBoldSystemFont" color="0xFFFFFFFF" />
+      <Label id="heroDesc" translation="[96,0]" width="900" wrap="true" maxLines="3" lineSpacing="6" font="font:SmallSystemFont" color="0xD4D4D4FF" />
+      <Group id="heroProgress" translation="[96,0]">
+        <Rectangle width="420" height="6" color="0xFFFFFF40" />
+        <Rectangle id="heroBar" width="0" height="6" color="0xE50914FF" />
+        <Label id="heroLeft" translation="[444,-18]" font="font:SmallSystemFont" color="0xBDBDBDFF" />
+      </Group>
+      <ButtonRow id="heroButtons" translation="[96,0]" minWidth="260" />
+    </Group>
     <Group id="stack" translation="[96,120]" />
-    <Rectangle width="1920" height="104" color="0x000000FF" />
+    <Rectangle id="headerBar" width="1920" height="104" color="0x000000FF" />
     <Label id="statusLabel" translation="[96,42]" width="1100" font="font:SmallestSystemFont" color="0x8C8C8CFF" />
     <!-- The app name, styled as a logo, top right. -->
     <Label id="brand" text="STREAM KUBENEX" translation="[1224,30]" width="600" horizAlign="right" font="font:MediumBoldSystemFont" color="0xE50914FF" />
     <Animation id="scrollAnim" duration="0.25" easeFunction="outQuad">
       <Vector2DFieldInterpolator id="scrollTo" key="[0.0, 1.0]" fieldToInterp="stack.translation" />
     </Animation>
+    <Timer id="heroTimer" repeat="false" duration="15" />
   </children>
 </component>

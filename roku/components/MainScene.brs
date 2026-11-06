@@ -34,6 +34,7 @@ sub init()
     m.home.observeField("focusedItem", "onHomeFocus")
     m.home.observeField("selectedItem", "onHomeSelected")
     m.home.observeField("playItem", "onHomePlay")
+    m.home.observeField("heroAction", "onHeroAction")
     m.details.observeField("action", "onDetailsAction")
     m.details.observeField("closed", "onDetailsClosed")
     m.previewTimer.observeField("fire", "startPreview")
@@ -89,6 +90,7 @@ end sub
 sub onLibraryLoaded()
     m.library = m.task.library
     m.videos = m.task.videos
+    setHero(m.library.hero)
     m.home.content = m.task.rows
     if m.task.rows.getChildCount() = 0
         m.home.status = "No videos yet. Add one from the web form, then press * and Refresh."
@@ -105,6 +107,44 @@ sub onLibraryLoaded()
         if v <> invalid then setDetails(v)
     end if
     if not m.showScreen.visible and not m.video.visible and not m.dialog.visible and not m.details.visible then focusHome()
+end sub
+
+' The hero: the last watched video (the server picks Continue Watching's first, else
+' the newest video).
+sub setHero(v as Dynamic)
+    if v = invalid
+        m.home.heroShow = {}
+        m.home.hero = {}
+        return
+    end if
+    cont = m.library["continue"]
+    kicker = "NEW"
+    if intOr(v.position, 0) > 0 and v.watched <> true
+        kicker = "CONTINUE WATCHING"
+    else if cont <> invalid and cont.Count() > 0 and cont[0].id = v.id
+        kicker = "UP NEXT"
+    end if
+    show = invalid
+    if v.kind = "episode" then show = findShow(v.show)
+    if show = invalid then show = {}
+    m.home.heroKicker = kicker
+    m.home.heroShow = show
+    m.home.hero = v
+end sub
+
+sub onHeroAction()
+    a = m.home.heroAction
+    v = m.library.hero
+    if v = invalid then return
+    if a.action = "play"
+        play(v, a.start)
+    else if a.action = "show"
+        s = findShow(v.show)
+        if s <> invalid
+            m.home.callFunc("stopHero", {})
+            m.showScreen.show = s
+        end if
+    end if
 end sub
 
 function findShow(name as Dynamic) as Dynamic
@@ -362,6 +402,7 @@ end sub
 sub play(v as Object, start as Integer)
     ' Most Rokus decode one video at a time.
     stopPreview()
+    m.home.callFunc("stopHero", {})
     if m.current <> invalid then saveProgress(Int(m.video.position))
     content = CreateObject("roSGNode", "ContentNode")
     content.url = v.url
@@ -728,7 +769,10 @@ sub openHomeMenu()
     choices = []
     title = "Library"
     item = m.home.focusedItem
-    if item <> invalid
+    if m.home.heroFocused and m.library <> invalid and m.library.hero <> invalid
+        title = episodeLabel(m.library.hero)
+        choices.Append(videoChoices(m.library.hero))
+    else if item <> invalid
         if item.itemType = "show"
             show = m.library.shows[item.showIndex]
             ids = []
