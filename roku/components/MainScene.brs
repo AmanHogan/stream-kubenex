@@ -568,8 +568,7 @@ sub onControlsAction()
     v = m.current
     if v = invalid then return
     if a = "startover"
-        m.video.seek = 0
-        m.video.control = "resume"
+        m.controls.callFunc("playFrom", { position: 0 })
     else if a = "previous" and v.prev_id <> invalid
         play(m.videos[v.prev_id], 0)
     else if a = "next" and v.next_id <> invalid
@@ -664,12 +663,6 @@ sub onVideoState()
     state = m.video.state
     ' Subtitle tracks are known once the video plays; apply the saved choice then.
     if state = "playing" and not m.subsApplied then applySubtitles()
-    ' A seek sent while paused can start playback; pause again on the new frame.
-    if state = "playing" and m.controls.holdPause
-        m.controls.holdPause = false
-        m.video.control = "pause"
-        return
-    end if
     if state = "paused"
         ' A menu pauses the video too; it has its own choices.
         if not m.dialog.visible and not m.upNext.visible then m.controls.callFunc("showPaused", {})
@@ -745,8 +738,7 @@ sub runChoice(c as Object)
     else if c.action = "next" or c.action = "previous"
         play(m.videos[c.id], 0)
     else if c.action = "startover"
-        m.video.seek = 0
-        m.video.control = "resume"
+        m.controls.callFunc("playFrom", { position: 0 })
         m.controls.setFocus(true)
     else if c.action = "refresh"
         loadLibrary()

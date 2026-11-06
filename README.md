@@ -135,12 +135,14 @@ git push ──► Jenkins (polls every 3 min) ──► kaniko builds downloade
    or a season, mark all watched or not; on the home screen, Refresh library. While playing:
    next episode, previous episode, play from beginning, subtitles.
 5. In the player, the channel draws its own controls (so one OK press pauses):
-   - Playing: OK or Play pauses. Left/Right seek 10 s, Rewind/Fast-forward 30 s, Replay 10 s
-     back; presses add up and the jump happens 0.7 s after the last one.
+   - Playing: OK or Play pauses. Left/Right (10 s), Rewind/Fast-forward (30 s) and Replay
+     (10 s back) pause and start a seek: the bar moves to the target and nothing jumps until
+     **OK or Play**, which plays from there. Back cancels the seek. Up/Down show the bar.
+   - A centre icon shows the state: pause, fast-forward or rewind with the jump ("+1:30"),
+     and a play icon that fades out when playback starts again.
    - Paused: the logo (or title) and the episode at the bottom left, then icons for Play from
-     beginning, Previous episode, Next episode and Subtitles. Focus starts on the progress bar:
-     OK resumes, Left/Right seek. Up goes to the icons (the highlighted one shows its name),
-     Down back to the bar.
+     beginning, Previous episode, Next episode and Subtitles. Focus starts on the progress bar.
+     Up goes to the icons (the highlighted one shows its name), Down back to the bar.
    - **Skip intro** appears during the intro (OK skips it). At the credits the
    episode counts as watched and **Up next** counts down 10 s (OK plays now, Back keeps watching).
 6. Debug output: `nc <roku ip> 8085`.

@@ -1,13 +1,17 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <!-- Our own player controls. They hold focus during playback, so the first OK
      pauses (the Roku player would take it to show its own bar).
-       Playing: OK or Play pauses. Left/Right seek 10 s, Rewind/Fast-forward 30 s (the jump
-         happens 0.35 s after the last press);
-         the bar shows for 4 s.
-       Paused: the logo (or title), the episode, and the icons; focus starts on the
-         progress bar. OK or Play resumes, Left/Right seek, Up goes to the icons,
-         Down back to the bar. The highlighted icon shows its name.
-     Back and * go to MainScene. -->
+       Playing: OK or Play pauses. Left/Right (10 s), Rewind/Fast-forward (30 s) and
+         Replay (10 s back) pause too and start a seek: the bar moves to the target
+         and nothing jumps until OK or Play, which plays from there. Back cancels the
+         seek. Up/Down show the bar for 4 s.
+       Paused: the logo (or title), the episode and the icons; focus starts on the
+         progress bar. Up goes to the icons (the highlighted one shows its name),
+         Down back to the bar.
+     The centre icon says what is going on: pause, fast-forward or rewind (with the
+     jump), and a play icon that fades out when playback starts again. One function
+     (setCenter) owns it, and every return to playing clears it.
+     Back (with no seek to cancel) and * go to MainScene. -->
 <component name="PlayerControls" extends="Group">
   <interface>
     <field id="video" type="node" onChange="onVideo" />
@@ -15,13 +19,12 @@
     <field id="info" type="assocarray" onChange="onInfo" />
     <!-- Out: an icon was pressed. { action: "startover" | "previous" | "next" | "subtitles" } -->
     <field id="action" type="assocarray" alwaysNotify="true" />
-    <!-- Set when a seek is sent while paused. The player may start playing after
-         the seek; MainScene pauses it again and clears this. -->
-    <field id="holdPause" type="boolean" />
     <function name="reset" />
     <function name="showPaused" />
     <function name="onPlaying" />
     <function name="handleKey" />
+    <!-- Jump to { position } and play (Play from beginning). -->
+    <function name="playFrom" />
   </interface>
   <script type="text/brightscript" uri="pkg:/components/PlayerControls.brs" />
   <children>
@@ -42,7 +45,16 @@
         <Label id="remaining" translation="[1228,26]" width="500" horizAlign="right" font="font:SmallSystemFont" color="0xBDBDBDFF" />
       </Group>
     </Group>
+    <!-- Centre of the screen: pause / fast-forward / rewind / play. -->
+    <Group id="center" translation="[885,440]" visible="false">
+      <Poster uri="pkg:/images/circle.png" width="150" height="150" blendColor="0x000000A6" />
+      <Poster id="centerGlyph" translation="[35,35]" width="80" height="80" />
+      <Label id="centerText" translation="[-75,164]" width="300" horizAlign="center" font="font:MediumBoldSystemFont" color="0xFFFFFFFF" />
+    </Group>
+    <!-- The play icon: holds for a moment, then fades out. -->
+    <Animation id="centerFade" duration="0.9" easeFunction="linear">
+      <FloatFieldInterpolator key="[0.0, 0.35, 1.0]" keyValue="[1.0, 1.0, 0.0]" fieldToInterp="center.opacity" />
+    </Animation>
     <Timer id="hideTimer" duration="4" />
-    <Timer id="seekTimer" duration="0.35" />
   </children>
 </component>

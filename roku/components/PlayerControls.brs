@@ -13,12 +13,16 @@ sub init()
     m.knob = m.top.findNode("knob")
     m.elapsed = m.top.findNode("elapsed")
     m.remaining = m.top.findNode("remaining")
+    m.center = m.top.findNode("center")
+    m.centerGlyph = m.top.findNode("centerGlyph")
+    m.centerText = m.top.findNode("centerText")
+    m.centerFade = m.top.findNode("centerFade")
     m.hideTimer = m.top.findNode("hideTimer")
-    m.seekTimer = m.top.findNode("seekTimer")
     m.hideTimer.observeField("fire", "onHideTimer")
-    m.seekTimer.observeField("fire", "commitSeek")
+    m.centerFade.observeField("state", "onCenterFadeState")
     m.actions = []
-    m.sinceSeek = CreateObject("roTimespan")
+    m.centerKind = "none"
+    m.strayTicks = 0
     reset()
 end sub
 
@@ -26,17 +30,16 @@ sub onVideo()
     m.top.video.observeField("position", "onPosition")
 end sub
 
-' A new video: nothing shown, no seek pending, focus on the bar.
+' A new video (or the player closed): nothing shown, no seek, focus on the bar.
 function reset(params = invalid as Dynamic) as Boolean
-    m.mode = "hidden"     ' hidden | bar (playing, after a seek) | paused
-    m.area = "bar"        ' bar | icons (paused only)
+    m.mode = "hidden"       ' hidden | bar (playing, after Up/Down) | paused
+    m.area = "bar"          ' bar | icons (paused only)
     m.iconIndex = 0
-    m.target = -1         ' seek target in seconds, until the player gets there
-    m.seekPending = false ' presses still adding up; not sent to the player yet
-    m.top.holdPause = false
+    m.target = -1           ' where a seek will go, in seconds; -1 = no seek
+    m.resumeAfterSeek = false
     m.hideTimer.control = "stop"
-    m.seekTimer.control = "stop"
     m.bottom.visible = false
+    setCenter("none")
     return true
 end function
 
@@ -102,10 +105,21 @@ function currentPosition() as Float
     return m.top.video.position
 end function
 
+' A seek is waiting when the target is at least a second away from where the video is.
+function seekPending() as Boolean
+    return m.target >= 0 and Abs(m.target - m.top.video.position) >= 1
+end function
+
 sub onPosition()
-    ' The player reports the old place for a moment after a seek; keep showing the target.
-    if m.target >= 0 and not m.seekPending
-        if Abs(m.top.video.position - m.target) < 2 or m.sinceSeek.TotalSeconds() > 6 then m.target = -1
+    ' Safety net. The position only moves while playing; a pause, fast-forward or
+    ' rewind icon must not stay then. Wait for 3 updates (about 1.5 s) in a row, since
+    ' a pause just asked for may still report "playing" once.
+    stray = m.centerKind = "pause" or m.centerKind = "ff" or m.centerKind = "rew"
+    if stray and m.top.video.state = "playing"
+        m.strayTicks = m.strayTicks + 1
+        if m.strayTicks >= 3 then onPlaying()
+    else
+        m.strayTicks = 0
     end if
     if m.mode <> "hidden" then update()
 end sub
@@ -138,24 +152,79 @@ function clock(seconds as Float) as String
     return out + secs.ToStr()
 end function
 
+' --- the centre icon -------------------------------------------------------------------
+' kind: none | pause | ff | rew | play. "play" fades out by itself.
+
+sub setCenter(kind as String)
+    m.centerFade.control = "stop"
+    m.centerKind = kind
+    m.strayTicks = 0
+    if kind = "none"
+        m.center.visible = false
+        return
+    end if
+    m.centerGlyph.uri = "pkg:/images/icon_" + kind + ".png"
+    m.centerText.text = ""
+    m.center.opacity = 1.0
+    m.center.visible = true
+    if kind = "play" then m.centerFade.control = "start"
+end sub
+
+sub onCenterFadeState()
+    if m.centerFade.state = "stopped" and m.centerKind = "play" then setCenter("none")
+end sub
+
+' While paused: fast-forward or rewind with the jump ("+1:30"), or pause.
+sub refreshCenter()
+    if m.mode <> "paused" then return
+    if seekPending()
+        delta = m.target - m.top.video.position
+        if delta > 0
+            if m.centerKind <> "ff" then setCenter("ff")
+            m.centerText.text = "+" + clock(delta)
+        else
+            if m.centerKind <> "rew" then setCenter("rew")
+            m.centerText.text = "-" + clock(-delta)
+        end if
+    else if m.centerKind <> "pause"
+        setCenter("pause")
+    end if
+end sub
+
 ' --- showing and hiding ---------------------------------------------------------------
 
+' The paused screen. MainScene calls this when the video pauses; a seek started
+' from playing calls it at once, without waiting for the player.
 function showPaused(params = invalid as Dynamic) as Boolean
-    m.mode = "paused"
-    m.area = "bar"
+    ' A seek sent with OK/Play may leave the player paused; carry on playing.
+    if m.resumeAfterSeek
+        m.resumeAfterSeek = false
+        m.top.video.control = "resume"
+        return true
+    end if
+    if m.mode <> "paused"
+        m.mode = "paused"
+        m.area = "bar"
+    end if
     m.hideTimer.control = "stop"
     m.bottom.visible = true
     m.details.visible = true
     update()
     showIcons()
+    refreshCenter()
     return true
 end function
 
+' Back to playing, whatever caused it: hide the paused screen, drop any seek, and
+' turn a centre icon into the play icon that fades out.
 function onPlaying(params = invalid as Dynamic) as Boolean
+    m.resumeAfterSeek = false
+    m.target = -1
     if m.mode = "paused"
         m.mode = "hidden"
         m.bottom.visible = false
     end if
+    if m.centerKind = "pause" or m.centerKind = "ff" or m.centerKind = "rew" then setCenter("play")
     return true
 end function
 
@@ -181,57 +250,57 @@ sub onHideTimer()
 end sub
 
 ' --- seeking ------------------------------------------------------------------------
-' Presses add up; the player seeks once they stop for 0.35 s.
+' A seek only moves the target. OK or Play sends it to the player.
 
 sub scrub(delta as Integer)
+    v = m.top.video
+    if m.mode <> "paused"
+        ' Start from where it is playing now, and pause there.
+        m.target = v.position
+        v.control = "pause"
+        showPaused()
+    else if m.target < 0
+        m.target = v.position
+    end if
     d = duration()
-    t = currentPosition() + delta
+    t = m.target + delta
     if t < 0 then t = 0
     if d > 0 and t > d - 5 then t = d - 5
     m.target = t
-    toBar = m.area <> "bar"
-    m.area = "bar"
-    if m.mode = "paused"
-        update()
-        if toBar then showIcons()
-    else
-        showBar()
+    if m.area <> "bar"
+        m.area = "bar"
+        showIcons()
     end if
-    m.seekPending = true
-    m.seekTimer.control = "stop"
-    m.seekTimer.control = "start"
-end sub
-
-sub commitSeek()
-    m.seekTimer.control = "stop"
-    if not m.seekPending or m.target < 0 then return
-    m.seekPending = false
-    if m.top.video.state = "paused" then m.top.holdPause = true
-    m.sinceSeek.Mark()
-    m.top.video.seek = m.target
-    ' Playing: keep the bar up a little after the jump.
-    if m.mode = "bar"
-        m.hideTimer.control = "stop"
-        m.hideTimer.control = "start"
-    end if
+    update()
+    refreshCenter()
 end sub
 
 sub togglePlay()
     v = m.top.video
-    if v.state = "paused"
-        ' A seek still adding up goes now, then play resumes from there.
-        if m.seekPending
-            m.seekPending = false
-            m.seekTimer.control = "stop"
-            m.sinceSeek.Mark()
-            v.seek = m.target
+    if m.mode = "paused" or v.state = "paused"
+        if seekPending()
+            jumpAndPlay(m.target)
+        else
+            v.control = "resume"
         end if
-        m.top.holdPause = false
-        v.control = "resume"
     else
         v.control = "pause"
     end if
 end sub
+
+' Jump, then play. The player may stay paused after a seek; showPaused() then
+' resumes it instead of showing the paused screen.
+sub jumpAndPlay(seconds as Float)
+    m.resumeAfterSeek = true
+    m.top.video.seek = seconds
+    m.top.video.control = "resume"
+end sub
+
+' MainScene: Play from beginning (from the icon or the * menu).
+function playFrom(params as Dynamic) as Boolean
+    jumpAndPlay(params.position)
+    return true
+end function
 
 ' --- remote -------------------------------------------------------------------------
 
@@ -283,6 +352,12 @@ function handleKey(key as Dynamic) as Boolean
         else if not paused
             showBar()
         end if
+        return true
+    else if key = "back" and paused and seekPending()
+        ' Cancel the seek; stay paused where the video is. Back again leaves.
+        m.target = -1
+        update()
+        refreshCenter()
         return true
     end if
     return false
