@@ -30,16 +30,10 @@ sub load()
     end if
 
     root = CreateObject("roSGNode", "ContentNode")
-    ' Under the hero: what you watched lately, without the hero's own video.
+    ' Under the hero: what you watched lately (the hero's video too).
     recent = json.recently_watched
     if recent = invalid then recent = json["continue"]
-    heroId = ""
-    if json.hero <> invalid then heroId = json.hero.id
-    rest = []
-    for each v in recent
-        if v.id <> heroId then rest.Push(v)
-    end for
-    addVideoRow(root, "Recently Watched", rest)
+    addVideoRow(root, "Recently Watched", recent)
     addShowRow(root, json.shows)
     addVideoRow(root, "Movies", json.movies)
     addVideoRow(root, "Clips", json.clips)

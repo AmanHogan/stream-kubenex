@@ -119,8 +119,8 @@ git push ──► Jenkins (polls every 3 min) ──► kaniko builds downloade
    plays in the card behind the text with sound, from where you stopped (it never changes your
    progress). Down goes to the rows; Up on the first row comes back. Back from the rows
    returns to the hero.
-   Rows of cards on a black page: Recently Watched (one card per show or movie, newest first,
-   without the hero's video), TV Shows, Movies, Clips. Cards show the **box art** of their show or movie (without box art: the
+   Rows of cards on a black page: Recently Watched (one card per show or movie, newest first),
+   TV Shows, Movies, Clips. Cards show the **box art** of their show or movie (without box art: the
    picture, cropped, with the name on it). The selected card of the selected row grows sideways
    to the **background** picture at the same height, with three lines under it: the show (or
    title), the episode in grey, and the time left. After 10 seconds on a video card, the video

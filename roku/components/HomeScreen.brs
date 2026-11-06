@@ -14,6 +14,7 @@ sub init()
     m.scrollTo = m.top.findNode("scrollTo")
     m.heroGroup = m.top.findNode("hero")
     m.heroButtons = m.top.findNode("heroButtons")
+    m.rowsFocus = m.top.findNode("rowsFocus")
     m.heroVideo = m.top.findNode("heroVideo")
     m.heroTimer = m.top.findNode("heroTimer")
     m.heroButtons.observeField("selected", "onHeroButton")
@@ -189,8 +190,14 @@ sub onFocusChange()
         stopHero()
         return
     end if
-    ' MainScene focuses this node; the hero's buttons take it from here.
-    if m.top.hasFocus() and m.onHero then m.heroButtons.setFocus(true)
+    ' MainScene focuses this node; the hero's buttons or the rows take it from here.
+    if m.top.hasFocus()
+        if m.onHero
+            m.heroButtons.setFocus(true)
+        else
+            m.rowsFocus.setFocus(true)
+        end if
+    end if
     scheduleHero()
 end sub
 
@@ -216,7 +223,7 @@ sub leaveHero(animate as Boolean)
     m.rowIndex = 0
     m.stack.getChild(0).active = true
     layoutRows(animate)
-    m.top.setFocus(true)
+    m.rowsFocus.setFocus(true)
     m.top.focusedItem = currentItem()
 end sub
 

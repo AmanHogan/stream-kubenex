@@ -45,7 +45,7 @@
       <Rectangle translation="[96,824]" width="1728" height="130" color="0x000000FF" />
       <Poster uri="pkg:/images/fade_left.png" translation="[96,104]" width="1150" height="720" loadDisplayMode="scaleToFill" />
       <Poster uri="pkg:/images/fade_bottom.png" translation="[96,424]" width="1728" height="400" loadDisplayMode="scaleToFill" />
-      <Poster uri="pkg:/images/round_mask.9.png" translation="[96,104]" width="1728" height="720" />
+      <Poster uri="pkg:/images/round_mask_lg.9.png" translation="[96,104]" width="1728" height="720" />
       <Label id="heroKicker" translation="[160,136]" font="font:SmallBoldSystemFont" color="0xBDBDBDFF" />
       <Logo id="heroLogo" translation="[160,180]" maxWidth="700" maxHeight="190" />
       <Label id="heroMeta" translation="[160,0]" width="1000" font="font:SmallSystemFont" color="0xBDBDBDFF" />
@@ -59,6 +59,10 @@
       <ButtonRow id="heroButtons" translation="[160,0]" minWidth="260" />
     </Group>
     <Group id="stack" translation="[96,120]" />
+    <!-- Holds focus while the rows are active; the keys reach this component from
+         it. (Focusing this component itself does not take focus away from the hero
+         buttons, which are inside it.) -->
+    <Group id="rowsFocus" focusable="true" />
     <Rectangle id="headerBar" width="1920" height="104" color="0x000000FF" />
     <Label id="statusLabel" translation="[96,42]" width="1100" font="font:SmallestSystemFont" color="0x8C8C8CFF" />
     <!-- The app name, styled as a logo, top right. -->
