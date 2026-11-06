@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <!-- Our own player controls. They hold focus during playback, so the first OK
      pauses (the Roku player would take it to show its own bar).
-       Playing: OK or Play pauses. Left/Right seek 10 s, Rewind/Fast-forward 30 s;
+       Playing: OK or Play pauses. Left/Right seek 10 s, Rewind/Fast-forward 30 s (the jump
+         happens 0.35 s after the last press);
          the bar shows for 4 s.
        Paused: the logo (or title), the episode, and the icons; focus starts on the
          progress bar. OK or Play resumes, Left/Right seek, Up goes to the icons,
@@ -42,6 +43,6 @@
       </Group>
     </Group>
     <Timer id="hideTimer" duration="4" />
-    <Timer id="seekTimer" duration="0.7" />
+    <Timer id="seekTimer" duration="0.35" />
   </children>
 </component>

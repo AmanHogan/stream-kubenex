@@ -65,6 +65,7 @@ sub init()
     m.current = invalid       ' the video playing now (an entry of m.videos)
     m.choices = []
     m.wasPlaying = false      ' was the video playing when a menu opened over it
+    m.underPlayer = invalid   ' screens hidden while a video plays, to show again after
     m.detailsVideo = invalid  ' the video on the details screen
     m.previewing = invalid    ' the video in the preview
     ' Subtitle choice, kept on this Roku: "off", or "<language>" / "<language>:sdh".
@@ -423,11 +424,33 @@ sub play(v as Object, start as Integer)
     m.upNextState = "none"    ' none | showing | dismissed
     hideOverlays()
     m.video.content = content
+    hideUnderPlayer()
     m.video.visible = true
     setControlsInfo(v)
     m.controls.visible = true
     m.controls.setFocus(true)
     m.video.control = "play"
+end sub
+
+' The screens under the full-screen video are hidden while it plays: the Roku would
+' keep drawing them (all that artwork) and answer the remote more slowly.
+sub hideUnderPlayer()
+    if m.underPlayer <> invalid then return
+    m.underPlayer = []
+    for each n in [m.home, m.detailsBack, m.details, m.showScreen]
+        if n.visible
+            m.underPlayer.Push(n)
+            n.visible = false
+        end if
+    end for
+end sub
+
+sub showUnderPlayer()
+    if m.underPlayer = invalid then return
+    for each n in m.underPlayer
+        n.visible = true
+    end for
+    m.underPlayer = invalid
 end sub
 
 sub setControlsInfo(v as Object)
@@ -675,6 +698,7 @@ sub closeVideo()
     hideOverlays()
     m.video.control = "stop"
     m.video.visible = false
+    showUnderPlayer()
     m.controls.callFunc("reset", {})
     m.controls.visible = false
     restoreCaptionMode()

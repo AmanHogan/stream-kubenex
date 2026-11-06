@@ -162,11 +162,13 @@ end function
 ' Playing: just the bar, for a few seconds.
 sub showBar()
     if m.mode = "paused" then return
-    m.mode = "bar"
-    m.bottom.visible = true
-    m.details.visible = false
+    if m.mode <> "bar"
+        m.mode = "bar"
+        m.bottom.visible = true
+        m.details.visible = false
+        showIcons()
+    end if
     update()
-    showIcons()
     m.hideTimer.control = "stop"
     m.hideTimer.control = "start"
 end sub
@@ -179,7 +181,7 @@ sub onHideTimer()
 end sub
 
 ' --- seeking ------------------------------------------------------------------------
-' Presses add up; the player seeks once they stop for 0.7 s.
+' Presses add up; the player seeks once they stop for 0.35 s.
 
 sub scrub(delta as Integer)
     d = duration()
@@ -187,10 +189,14 @@ sub scrub(delta as Integer)
     if t < 0 then t = 0
     if d > 0 and t > d - 5 then t = d - 5
     m.target = t
+    toBar = m.area <> "bar"
     m.area = "bar"
-    showBar()
-    update()
-    showIcons()
+    if m.mode = "paused"
+        update()
+        if toBar then showIcons()
+    else
+        showBar()
+    end if
     m.seekPending = true
     m.seekTimer.control = "stop"
     m.seekTimer.control = "start"
