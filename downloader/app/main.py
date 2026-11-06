@@ -1145,7 +1145,7 @@ def library_feed() -> dict:
     cont = playback.continue_watching(videos)
     # The home banner: what you watched last, or else the newest video.
     hero = (cont or lib["recent"] or [None])[0]
-    return {"hero": hero, "continue": cont, **lib}
+    return {"hero": hero, "continue": cont, "recently_watched": playback.recently_watched(videos), **lib}
 
 
 @app.get("/healthz")

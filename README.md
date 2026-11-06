@@ -114,11 +114,13 @@ git push ──► Jenkins (polls every 3 min) ──► kaniko builds downloade
 1. Enable Developer Mode on the Roku: Home ×3, Up ×2, Right, Left, Right, Left, Right. Set a password.
 2. `ROKU_IP=<roku ip> scripts/roku-sideload.sh` (it prompts for the dev password)
    (or run `scripts/roku-package.sh` and upload `build/stream-kubenex-roku.zip` at `http://<roku ip>`).
-3. Home opens on the **hero**: the last watched video, full screen, with its logo, episode,
-   synopsis, progress, **Resume** and **Go to show**. After 15 seconds it plays behind the
-   text with sound, from where you stopped (it never changes your progress). Down goes to the
-   rows; Up on the first row comes back. Back from the rows returns to the hero.
-   Rows of cards on a black page: Continue Watching, TV Shows, Movies, Clips. Cards show the **box art** of their show or movie (without box art: the
+3. Home opens on the **hero card** (most of the screen, rounded): the last watched video, with
+   its logo, episode, synopsis, progress, **Resume** and **Go to show**. After 15 seconds it
+   plays in the card behind the text with sound, from where you stopped (it never changes your
+   progress). Down goes to the rows; Up on the first row comes back. Back from the rows
+   returns to the hero.
+   Rows of cards on a black page: Recently Watched (one card per show or movie, newest first,
+   without the hero's video), TV Shows, Movies, Clips. Cards show the **box art** of their show or movie (without box art: the
    picture, cropped, with the name on it). The selected card of the selected row grows sideways
    to the **background** picture at the same height, with three lines under it: the show (or
    title), the episode in grey, and the time left. After 10 seconds on a video card, the video

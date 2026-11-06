@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- The home screen. On top, the hero: the last watched video, full screen, with
-     its logo, episode, synopsis, progress, Resume and Go to show. After 15 s it
-     plays behind the text, with sound. Down goes to the rows (Continue Watching,
-     TV Shows, Movies, Clips); Up on the first row comes back. In the rows, the
+<!-- The home screen. On top, the hero card: the last watched video, with its logo,
+     episode, synopsis, progress, Resume and Go to show. After 15 s it plays in the
+     card behind the text, with sound. Down goes to the rows (Recently Watched, TV
+     Shows, Movies, Clips); Up on the first row comes back. In the rows, the
      active row sits under the header and its selected card is expanded. Give this
      node focus. -->
 <component name="HomeScreen" extends="Group">
@@ -13,7 +13,7 @@
          Set heroShow, then hero, then content. -->
     <field id="hero" type="assocarray" onChange="onHero" />
     <field id="heroShow" type="assocarray" />
-    <!-- The small red line over the hero: "CONTINUE WATCHING", "UP NEXT", "NEW". -->
+    <!-- The small grey line over the hero: "Continue Watching", "Up Next", "New". -->
     <field id="heroKicker" type="string" />
     <field id="status" type="string" onChange="onStatus" />
     <!-- Out: the selected card's ContentNode, on every move and after a refresh;
@@ -35,22 +35,28 @@
   <script type="text/brightscript" uri="pkg:/components/HomeScreen.brs" />
   <script type="text/brightscript" uri="pkg:/components/util.brs" />
   <children>
+    <!-- The hero card: 1728x720 under the header, rounded. The video is 16:9 and
+         taller than the card; the black bar under the card and the header hide what
+         sticks out (the page is black), so it looks cropped to the card. -->
     <Group id="hero" visible="false">
-      <Poster id="heroArt" width="1920" height="1080" loadWidth="1920" loadHeight="1080" loadDisplayMode="scaleToZoom" />
-      <Video id="heroVideo" enableUI="false" width="1920" height="1080" visible="false" />
-      <Poster uri="pkg:/images/fade_left.png" width="1250" height="1080" loadDisplayMode="scaleToFill" />
-      <Poster uri="pkg:/images/fade_bottom.png" translation="[0,560]" width="1920" height="520" loadDisplayMode="scaleToFill" />
-      <Label id="heroKicker" translation="[96,150]" font="font:SmallBoldSystemFont" color="0xE50914FF" />
-      <Logo id="heroLogo" translation="[96,196]" maxWidth="760" maxHeight="240" />
-      <Label id="heroMeta" translation="[96,0]" width="1000" font="font:SmallSystemFont" color="0xBDBDBDFF" />
-      <Label id="heroEpisode" translation="[96,0]" width="1000" font="font:MediumBoldSystemFont" color="0xFFFFFFFF" />
-      <Label id="heroDesc" translation="[96,0]" width="900" wrap="true" maxLines="3" lineSpacing="6" font="font:SmallSystemFont" color="0xD4D4D4FF" />
-      <Group id="heroProgress" translation="[96,0]">
+      <Rectangle translation="[96,104]" width="1728" height="720" color="0x1A1A1AFF" />
+      <Poster id="heroArt" translation="[96,104]" width="1728" height="720" loadWidth="1728" loadHeight="720" loadDisplayMode="scaleToZoom" />
+      <Video id="heroVideo" enableUI="false" translation="[96,-22]" width="1728" height="972" visible="false" />
+      <Rectangle translation="[96,824]" width="1728" height="130" color="0x000000FF" />
+      <Poster uri="pkg:/images/fade_left.png" translation="[96,104]" width="1150" height="720" loadDisplayMode="scaleToFill" />
+      <Poster uri="pkg:/images/fade_bottom.png" translation="[96,424]" width="1728" height="400" loadDisplayMode="scaleToFill" />
+      <Poster uri="pkg:/images/round_mask.9.png" translation="[96,104]" width="1728" height="720" />
+      <Label id="heroKicker" translation="[160,136]" font="font:SmallBoldSystemFont" color="0xBDBDBDFF" />
+      <Logo id="heroLogo" translation="[160,180]" maxWidth="700" maxHeight="190" />
+      <Label id="heroMeta" translation="[160,0]" width="1000" font="font:SmallSystemFont" color="0xBDBDBDFF" />
+      <Label id="heroEpisode" translation="[160,0]" width="1000" font="font:MediumBoldSystemFont" color="0xFFFFFFFF" />
+      <Label id="heroDesc" translation="[160,0]" width="900" wrap="true" maxLines="2" lineSpacing="6" font="font:SmallSystemFont" color="0xD4D4D4FF" />
+      <Group id="heroProgress" translation="[160,0]">
         <Rectangle width="420" height="6" color="0xFFFFFF40" />
         <Rectangle id="heroBar" width="0" height="6" color="0xE50914FF" />
         <Label id="heroLeft" translation="[444,-18]" font="font:SmallSystemFont" color="0xBDBDBDFF" />
       </Group>
-      <ButtonRow id="heroButtons" translation="[96,0]" minWidth="260" />
+      <ButtonRow id="heroButtons" translation="[160,0]" minWidth="260" />
     </Group>
     <Group id="stack" translation="[96,120]" />
     <Rectangle id="headerBar" width="1920" height="104" color="0x000000FF" />

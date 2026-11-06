@@ -5,7 +5,7 @@ end function
 
 ' While the hero has focus, the first row's title is here (the rows peek under it).
 function heroRowsTop() as Integer
-    return 900
+    return 852
 end function
 
 sub init()
@@ -118,23 +118,24 @@ end sub
 
 ' Each line under the one above, skipping empty ones; the buttons stay above the rows.
 sub stackHeroLines()
-    y = 196 + 240 + 20
+    y = 180 + 190 + 18
     for each id in ["heroMeta", "heroEpisode", "heroDesc", "heroProgress"]
         node = m.top.findNode(id)
         shown = node.visible
         if id <> "heroProgress" then shown = node.text <> ""
         if shown
             if id = "heroProgress"
-                node.translation = [96, y + 18]
-                y = y + 56
+                node.translation = [160, y + 18]
+                y = y + 52
             else
-                node.translation = [96, y]
-                y = y + Int(node.boundingRect().height) + 16
+                node.translation = [160, y]
+                y = y + Int(node.boundingRect().height) + 14
             end if
         end if
     end for
-    if y > 760 then y = 760
-    m.heroButtons.translation = [96, y + 12]
+    ' The buttons stay inside the card (it ends at y = 824).
+    if y > 712 then y = 712
+    m.heroButtons.translation = [160, y + 8]
 end sub
 
 sub onHeroButton()
@@ -286,7 +287,6 @@ end function
 ' Stack the rows. On the hero they peek under it; else the active row goes under the
 ' header and the rows above it hide.
 sub layoutRows(animate as Boolean)
-    m.top.findNode("headerBar").visible = not m.onHero
     y = 0
     activeY = 0
     for i = 0 to m.stack.getChildCount() - 1

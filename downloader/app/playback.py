@@ -106,3 +106,26 @@ def continue_watching(videos: list[dict], limit: int = 12) -> list[dict]:
             picks.append((v["last_watched_at"], by_id[nid]))
     picks.sort(key=lambda p: p[0], reverse=True)
     return [v for _, v in picks[:limit]]
+
+
+def recently_watched(videos: list[dict], limit: int = 20) -> list[dict]:
+    """One entry per show or movie you watched, most recent first. A show's entry is
+    what Continue Watching would play next, or else the episode you watched last.
+    Unlike Continue Watching, finished movies and clips stay. videos must come from
+    enrich()."""
+    nxt = {v["show"]: v for v in continue_watching(videos, limit=len(videos)) if v["kind"] == "episode"}
+    latest: dict[str, dict] = {}
+    picks: list[tuple[float, dict]] = []
+    for v in videos:
+        if not v.get("last_watched_at"):
+            continue
+        if v["kind"] == "episode" and v.get("show"):
+            cur = latest.get(v["show"])
+            if cur is None or v["last_watched_at"] > cur["last_watched_at"]:
+                latest[v["show"]] = v
+        else:
+            picks.append((v["last_watched_at"], v))
+    for show, v in latest.items():
+        picks.append((v["last_watched_at"], nxt.get(show, v)))
+    picks.sort(key=lambda p: p[0], reverse=True)
+    return [v for _, v in picks[:limit]]

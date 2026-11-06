@@ -118,11 +118,11 @@ sub setHero(v as Dynamic)
         return
     end if
     cont = m.library["continue"]
-    kicker = "NEW"
+    kicker = "New"
     if intOr(v.position, 0) > 0 and v.watched <> true
-        kicker = "CONTINUE WATCHING"
+        kicker = "Continue Watching"
     else if cont <> invalid and cont.Count() > 0 and cont[0].id = v.id
-        kicker = "UP NEXT"
+        kicker = "Up Next"
     end if
     show = invalid
     if v.kind = "episode" then show = findShow(v.show)
