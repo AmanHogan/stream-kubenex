@@ -47,8 +47,10 @@
     <Animation id="moveAnim" duration="0.22" easeFunction="outQuad">
       <Vector2DFieldInterpolator id="moveTo" key="[0.0, 1.0]" fieldToInterp="root.translation" />
     </Animation>
+    <!-- Selected: the wide picture and the lines under it fade in; unselected: out. -->
     <Animation id="fadeAnim" duration="0.25" easeFunction="outQuad">
-      <FloatFieldInterpolator key="[0.0, 1.0]" keyValue="[0.0, 1.0]" fieldToInterp="wide.opacity" />
+      <FloatFieldInterpolator id="fadeWide" key="[0.0, 1.0]" fieldToInterp="wide.opacity" />
+      <FloatFieldInterpolator id="fadeInfo" key="[0.0, 1.0]" fieldToInterp="info.opacity" />
     </Animation>
   </children>
 </component>

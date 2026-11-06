@@ -17,6 +17,9 @@ sub init()
     m.moveAnim = m.top.findNode("moveAnim")
     m.moveTo = m.top.findNode("moveTo")
     m.fadeAnim = m.top.findNode("fadeAnim")
+    m.fadeWide = m.top.findNode("fadeWide")
+    m.fadeInfo = m.top.findNode("fadeInfo")
+    m.fadeAnim.observeField("state", "onFadeState")
     ' The badge background fits its text, so "Watched" is never cut off.
     w = Int(m.top.findNode("badgeText").boundingRect().width) + 28
     m.top.findNode("badgeBg").width = w
@@ -66,20 +69,35 @@ end sub
 
 sub onExpanded()
     m.fadeAnim.control = "stop"
-    m.info.visible = m.top.expanded
+    target = 0.0
     if m.top.expanded
+        target = 1.0
         ' One wide picture in memory at a time, not one per card.
         if m.top.itemContent <> invalid then m.widePoster.uri = m.top.itemContent.HDPOSTERURL
-        m.wide.visible = true
-        if m.top.animate
+        if not m.wide.visible
             m.wide.opacity = 0
-            m.fadeAnim.control = "start"
-        else
-            m.wide.opacity = 1
+            m.info.opacity = 0
         end if
+        m.wide.visible = true
+        m.info.visible = true
+    end if
+    if m.top.animate and m.wide.visible
+        ' Fade from wherever it is now, so a quick change of mind never jumps.
+        m.fadeWide.keyValue = [m.wide.opacity, target]
+        m.fadeInfo.keyValue = [m.info.opacity, target]
+        m.fadeAnim.control = "start"
     else
-        m.wide.visible = false
-        m.widePoster.uri = ""
+        m.wide.opacity = target
+        m.info.opacity = target
+        onFadeState()
     end if
     showProgress()
+end sub
+
+' After fading out: hide the wide picture and free it.
+sub onFadeState()
+    if m.top.expanded or m.fadeAnim.state = "running" then return
+    m.wide.visible = false
+    m.info.visible = false
+    m.widePoster.uri = ""
 end sub
