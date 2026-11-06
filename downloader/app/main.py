@@ -103,8 +103,8 @@ CREATE TABLE IF NOT EXISTS shows (
     intro_start INTEGER,
     intro_end   INTEGER,
     credits_before_end INTEGER,
-    art         TEXT,                       -- file name in media/art/, or NULL
-    art_version INTEGER,                    -- changes on every upload, so the Roku refetches
+    art         TEXT,                       -- old single picture; moved to artwork at startup
+    art_version INTEGER,
     -- Details screen. Typed on the web form today; a metadata import can fill the same columns later.
     year        INTEGER,                    -- first aired
     description TEXT
@@ -149,9 +149,28 @@ CREATE TABLE IF NOT EXISTS subtitles (
 # Auto-generated captions are never fetched.
 SUB_LANGS = [s.strip() for s in os.environ.get("SUB_LANGS", "en.*,eng.*").split(",") if s.strip()]
 
-# Show artwork: converted to JPEG, at most 1920 wide, served by nginx under /media/art/.
+# Artwork for a show ("show:<name>") or a video ("video:<id>", used for movies), one
+# file per slot in media/art/, served by nginx. version changes on every upload, so
+# the Roku (which caches pictures by URL) fetches the new one.
+ARTWORK_SCHEMA = """
+CREATE TABLE IF NOT EXISTS artwork (
+    owner   TEXT NOT NULL,
+    slot    TEXT NOT NULL,                  -- background | boxart | logo
+    file    TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    PRIMARY KEY (owner, slot)
+)
+"""
 ART_DIR = MEDIA_DIR / "art"
 MAX_ART_BYTES = 15 * 1024 * 1024
+# Each slot is cropped or fitted to the shape the Roku shows, so any picture works.
+#   background: 16:9, cropped to fill.  boxart: 2:3 (a DVD cover), cropped to fill.
+#   logo: fitted inside 1000x400, transparency kept (upload a PNG).
+ART_SLOTS = {
+    "background": ("jpg", "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,format=yuvj420p"),
+    "boxart": ("jpg", "scale=600:900:force_original_aspect_ratio=increase,crop=600:900,format=yuvj420p"),
+    "logo": ("png", "scale=w='min(1000,iw)':h='min(400,ih)':force_original_aspect_ratio=decrease,format=rgba"),
+}
 
 app = FastAPI(title="stream-kubenex")
 # One worker per lane. Page URLs ("queue") wait their turn. Media URLs from the
@@ -554,10 +573,15 @@ def startup() -> None:
         conn.execute(SCHEMA)
         conn.execute(SHOWS_SCHEMA)
         conn.execute(SUBTITLES_SCHEMA)
+        conn.execute(ARTWORK_SCHEMA)
         have_shows = {r["name"] for r in conn.execute("PRAGMA table_info(shows)")}
         for col, sql_type in SHOWS_ADDED_COLUMNS.items():
             if col not in have_shows:
                 conn.execute(f"ALTER TABLE shows ADD COLUMN {col} {sql_type}")
+        conn.execute(
+            "INSERT OR IGNORE INTO artwork (owner, slot, file, version) "
+            "SELECT 'show:' || name, 'background', art, COALESCE(art_version, 0) FROM shows WHERE art IS NOT NULL")
+        conn.execute("UPDATE shows SET art = NULL, art_version = NULL WHERE art IS NOT NULL")
         have = {r["name"] for r in conn.execute("PRAGMA table_info(videos)")}
         for col, sql_type in ADDED_COLUMNS.items():
             if col not in have:
@@ -633,13 +657,29 @@ class DownloadRequest(BaseModel):
     sniffed: bool = False
 
 
+def artwork_map(conn: sqlite3.Connection) -> dict[str, dict[str, str]]:
+    """owner -> {slot: full URL}. Missing slots are absent."""
+    art: dict[str, dict[str, str]] = {}
+    for r in conn.execute("SELECT owner, slot, file, version FROM artwork"):
+        art.setdefault(r["owner"], {})[r["slot"]] = f"{PUBLIC_BASE_URL}/media/art/{r['file']}?v={r['version']}"
+    return art
+
+
 def show_markers(conn: sqlite3.Connection) -> dict[str, dict]:
-    """Per-show settings by show name, with the artwork as a full URL ("" = none)."""
+    """Per-show settings by show name, with its artwork URLs ("" = none)."""
+    art = artwork_map(conn)
     shows = {}
     for r in conn.execute("SELECT * FROM shows"):
         s = dict(r)
-        s["art_url"] = f"{PUBLIC_BASE_URL}/media/art/{s['art']}?v={s['art_version']}" if s.get("art") else ""
+        del s["art"], s["art_version"]
         shows[s["name"]] = s
+    # A show may have artwork before it has any other settings.
+    for owner in art:
+        if owner.startswith("show:"):
+            shows.setdefault(owner[5:], {"name": owner[5:]})
+    for name, s in shows.items():
+        slots = art.get(f"show:{name}", {})
+        s["artwork"] = {slot: slots.get(slot, "") for slot in ART_SLOTS}
     return shows
 
 
@@ -717,8 +757,11 @@ def list_videos() -> dict:
         rows = [dict(r) for r in conn.execute("SELECT * FROM videos ORDER BY created_at DESC")]
         shows = show_markers(conn)
         subs = subtitle_map(conn)
+        art = artwork_map(conn)
     for r in rows:
         r["subtitles"] = subs.get(r["id"], [])
+        slots = art.get(f"video:{r['id']}", {})
+        r["artwork"] = {slot: slots.get(slot, "") for slot in ART_SLOTS}
     for r in rows:
         if r["status"] == "ready":
             r.update(media_urls(r["id"]))
@@ -819,6 +862,7 @@ def delete_video(vid: str) -> Response:
             raise HTTPException(409, "Video is still being processed; wait for it to finish.")
         conn.execute("DELETE FROM videos WHERE id = ?", (vid,))
     remove_files(vid)
+    delete_artwork(f"video:{vid}")
     return Response(status_code=204)
 
 
@@ -920,32 +964,31 @@ def update_show(name: str, req: ShowInfo) -> dict:
     return dict(row)
 
 
-@app.put("/api/shows/{name}/art", dependencies=[Depends(require_token)])
-async def set_show_art(name: str, request: Request) -> dict:
-    """Optional artwork for a show. The body is the raw image (JPEG, PNG, WebP...).
-    It is used for the show's card, the home banner and the show screen."""
+async def save_artwork(owner: str, slot: str, request: Request) -> dict:
+    """Store the raw image in the request body as one artwork slot."""
+    if slot not in ART_SLOTS:
+        raise HTTPException(400, f"slot must be one of: {', '.join(ART_SLOTS)}.")
     size = int(request.headers.get("content-length") or 0)
     if not size:
         raise HTTPException(411, "Content-Length is required.")
     if size > MAX_ART_BYTES:
         raise HTTPException(413, f"Images can be at most {MAX_ART_BYTES // (1024 * 1024)} MB.")
-    with db() as conn:
-        require_show(conn, name)
     body = await request.body()
     if len(body) > MAX_ART_BYTES:
         raise HTTPException(413, "The body is larger than Content-Length.")
 
+    ext, vf = ART_SLOTS[slot]
     ART_DIR.mkdir(parents=True, exist_ok=True)
     # The file name comes from a hash: show names may hold any character.
-    filename = f"show-{hashlib.sha1(name.encode()).hexdigest()[:12]}.jpg"
+    filename = f"{hashlib.sha1(owner.encode()).hexdigest()[:12]}-{slot}.{ext}"
     upload = ART_DIR / f".upload-{uuid.uuid4().hex}"
     tmp = ART_DIR / f".{filename}"
     try:
         upload.write_bytes(body)
-        # ffmpeg reads any common image format; output one JPEG, at most 1920 wide.
+        # ffmpeg reads any common image format (JPEG, PNG, WebP...).
         proc = await anyio.to_thread.run_sync(lambda: subprocess.run(
             ["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", str(upload), "-frames:v", "1",
-             "-vf", "scale='min(1920,iw)':-2", "-q:v", "3", "-f", "image2", str(tmp)],
+             "-vf", vf, *(["-q:v", "3"] if ext == "jpg" else []), "-f", "image2", str(tmp)],
             capture_output=True, timeout=60))
         if proc.returncode != 0 or not tmp.exists():
             raise HTTPException(400, "That file is not an image ffmpeg can read.")
@@ -954,25 +997,58 @@ async def set_show_art(name: str, request: Request) -> dict:
         upload.unlink(missing_ok=True)
         tmp.unlink(missing_ok=True)
 
-    version = int(time.time())
     with db() as conn:
         conn.execute(
-            "INSERT INTO shows (name, art, art_version) VALUES (?, ?, ?) "
-            "ON CONFLICT(name) DO UPDATE SET art = excluded.art, art_version = excluded.art_version",
-            (name, filename, version),
+            "INSERT INTO artwork (owner, slot, file, version) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(owner, slot) DO UPDATE SET file = excluded.file, version = excluded.version",
+            (owner, slot, filename, int(time.time())),
         )
-        art_url = show_markers(conn)[name]["art_url"]
-    return {"name": name, "art_url": art_url}
+        url = artwork_map(conn)[owner][slot]
+    return {"slot": slot, "url": url}
+
+
+def delete_artwork(owner: str, slot: str | None = None) -> int:
+    """Delete one slot, or every slot when slot is None. Returns how many went."""
+    with db() as conn:
+        if slot is None:
+            rows = conn.execute("SELECT file FROM artwork WHERE owner = ?", (owner,)).fetchall()
+            conn.execute("DELETE FROM artwork WHERE owner = ?", (owner,))
+        else:
+            rows = conn.execute("SELECT file FROM artwork WHERE owner = ? AND slot = ?", (owner, slot)).fetchall()
+            conn.execute("DELETE FROM artwork WHERE owner = ? AND slot = ?", (owner, slot))
+    for r in rows:
+        (ART_DIR / r["file"]).unlink(missing_ok=True)
+    return len(rows)
+
+
+@app.put("/api/shows/{name}/art", dependencies=[Depends(require_token)])
+async def set_show_art(name: str, request: Request, slot: str = "background") -> dict:
+    """One artwork slot for a show. The body is the raw image."""
+    with db() as conn:
+        require_show(conn, name)
+    return await save_artwork(f"show:{name}", slot, request)
 
 
 @app.delete("/api/shows/{name}/art", status_code=204, dependencies=[Depends(require_token)])
-def delete_show_art(name: str) -> Response:
+def delete_show_art(name: str, slot: str = "background") -> Response:
+    if not delete_artwork(f"show:{name}", slot):
+        raise HTTPException(404, "That show has no artwork in that slot.")
+    return Response(status_code=204)
+
+
+@app.put("/api/videos/{vid}/art", dependencies=[Depends(require_token)])
+async def set_video_art(vid: str, request: Request, slot: str = "background") -> dict:
+    """One artwork slot for a video. Meant for movies; episodes use their show's."""
     with db() as conn:
-        row = conn.execute("SELECT art FROM shows WHERE name = ?", (name,)).fetchone()
-        if row is None or not row["art"]:
-            raise HTTPException(404, "That show has no artwork.")
-        conn.execute("UPDATE shows SET art = NULL, art_version = NULL WHERE name = ?", (name,))
-    (ART_DIR / row["art"]).unlink(missing_ok=True)
+        if not conn.execute("SELECT 1 FROM videos WHERE id = ?", (vid,)).fetchone():
+            raise HTTPException(404, "No video with that id.")
+    return await save_artwork(f"video:{vid}", slot, request)
+
+
+@app.delete("/api/videos/{vid}/art", status_code=204, dependencies=[Depends(require_token)])
+def delete_video_art(vid: str, slot: str = "background") -> Response:
+    if not delete_artwork(f"video:{vid}", slot):
+        raise HTTPException(404, "That video has no artwork in that slot.")
     return Response(status_code=204)
 
 
@@ -1034,10 +1110,9 @@ def feed() -> dict:
 
 @app.get("/api/library")
 def library_feed() -> dict:
-    """The Roku home screen: the hero banner (last played), Continue Watching, recent
-    videos, TV shows (with seasons), movies and clips. Every video carries its
-    progress, markers, next/previous episode and big-picture art. Open like
-    /api/feed, and for the same reason."""
+    """The Roku library: Continue Watching, recent videos, TV shows (with seasons),
+    movies and clips. Every video carries its progress, markers, next/previous episode
+    and artwork (art, boxart, logo). Open like /api/feed, and for the same reason."""
     with db() as conn:
         rows = conn.execute(
             "SELECT id, title, uploader, duration, description, kind, show, season, episode, year, "
@@ -1046,15 +1121,25 @@ def library_feed() -> dict:
         ).fetchall()
         shows = show_markers(conn)
         subs = subtitle_map(conn)
+        art = artwork_map(conn)
     videos = playback.enrich(
         [{**dict(r), **media_urls(r["id"]), "subtitles": subs.get(r["id"], [])} for r in rows], shows)
+    no_art = {slot: "" for slot in ART_SLOTS}
     for v in videos:
-        # Big pictures (home banner, show cards) prefer the show's uploaded artwork.
-        v["art"] = shows.get(v.get("show") or "", {}).get("art_url") or v["thumbnail"]
+        # A movie's own artwork, else its show's. art = the wide picture (falls back to
+        # the thumbnail); boxart and logo are "" when nobody uploaded one.
+        own = art.get(f"video:{v['id']}", {})
+        show = shows.get(v.get("show") or "", {}).get("artwork", no_art)
+        v["art"] = own.get("background") or show["background"] or v["thumbnail"]
+        v["boxart"] = own.get("boxart") or show["boxart"]
+        v["logo"] = own.get("logo") or show["logo"]
     lib = library.group(videos)
     for s in lib["shows"]:
         info = shows.get(s["name"], {})
-        s["art"] = info.get("art_url") or s["thumbnail"]
+        slots = info.get("artwork", no_art)
+        s["art"] = slots["background"] or s["thumbnail"]
+        s["boxart"] = slots["boxart"]
+        s["logo"] = slots["logo"]
         s["year"] = info.get("year")
         s["description"] = info.get("description") or ""
     cont = playback.continue_watching(videos)

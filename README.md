@@ -114,22 +114,29 @@ git push ──► Jenkins (polls every 3 min) ──► kaniko builds downloade
 1. Enable Developer Mode on the Roku: Home ×3, Up ×2, Right, Left, Right, Left, Right. Set a password.
 2. `ROKU_IP=<roku ip> scripts/roku-sideload.sh` (it prompts for the dev password)
    (or run `scripts/roku-package.sh` and upload `build/stream-kubenex-roku.zip` at `http://<roku ip>`).
-3. Home shows rows of cards: Continue Watching, Recently added, TV Shows, Movies, Clips.
-   The selected card of the selected row is large (960x540) with three lines under it: the
-   show (or title), the episode in grey, and the time left. After 10 seconds on a video card,
-   the video plays inside the card with sound, from where you stopped (it never changes your
-   progress). Up/Down move between rows, Left/Right along a row. Back goes to the first card;
-   Back there leaves the channel. **Play** plays the selected video at once.
-   OK on a video opens its **details screen**: year, number of seasons, the episode, the
-   synopsis, and Resume, Play from beginning, Go to show. OK on a show opens its seasons (left)
-   and episodes (right). A show's cards and details use its artwork if one was uploaded (web
-   form → TV shows → **Artwork**; a wide 16:9 picture works best).
+3. Home shows rows of cards on a black page: Continue Watching, Recently added, TV Shows,
+   Movies, Clips. Cards show the **box art** of their show or movie (without box art: the
+   picture, cropped, with the name on it). The selected card of the selected row grows sideways
+   to the **background** picture at the same height, with three lines under it: the show (or
+   title), the episode in grey, and the time left. After 10 seconds on a video card, the video
+   plays inside the card with sound, from where you stopped (it never changes your progress).
+   Up/Down move between rows, Left/Right along a row. Back goes to the first card; Back there
+   leaves the channel. **Play** plays the selected video at once.
+   OK on a video opens its **details screen**: the logo, year, seasons, the episode, the
+   synopsis, and Resume, Play from beginning, Go to show (stacked). OK on a show opens its
+   **show page**: logo, year and seasons (with episode counts) on the left, that season's
+   episodes with their synopses on the right.
 4. `*` opens a menu: on a video, resume / play from beginning / mark watched or not; on a show
    or a season, mark all watched or not; on the home screen, Refresh library. While playing:
-   next episode, previous episode, play from beginning.
-5. In the player: **Pause** (or OK) shows Resume, Previous episode, Play from beginning and Next
-   episode above the progress bar; Play or Fast-forward/Rewind hides them.
-   **Skip intro** appears during the intro (OK skips it). At the credits the
+   next episode, previous episode, play from beginning, subtitles.
+5. In the player, the channel draws its own controls (so one OK press pauses):
+   - Playing: OK or Play pauses. Left/Right seek 10 s, Rewind/Fast-forward 30 s, Replay 10 s
+     back; presses add up and the jump happens 0.7 s after the last one.
+   - Paused: the logo (or title) and the episode at the bottom left, then icons for Play from
+     beginning, Previous episode, Next episode and Subtitles. Focus starts on the progress bar:
+     OK resumes, Left/Right seek. Up goes to the icons (the highlighted one shows its name),
+     Down back to the bar.
+   - **Skip intro** appears during the intro (OK skips it). At the credits the
    episode counts as watched and **Up next** counts down 10 s (OK plays now, Back keeps watching).
 6. Debug output: `nc <roku ip> 8085`.
 
@@ -167,13 +174,24 @@ episode's Edit can override it. Stopping in the first 30 seconds leaves nothing 
 `POST /api/progress` and `/api/watched` need no token, like the feed: the Roku cannot keep a
 secret, and they change watch state only.
 
-## Show details (year, synopsis)
+## Artwork and show details
 
-The details screen shows a year and a synopsis when they exist. Type them on the web form:
-TV shows → **Details** (the show's year and synopsis), and **Edit** → Description on any video
-(an episode's own synopsis wins over the show's). Downloads keep the site's description.
-There is no metadata service and no API key; a later import (for example from free datasets)
-can fill the same fields: `shows.year`, `shows.description`, `videos.description`.
+Each show and each movie can have three pictures (web form → TV shows → **Artwork**, or
+**Artwork** on a movie). The server crops or fits each one, so any size works:
+
+| Picture | Shape | Used for |
+|---|---|---|
+| Box art | Tall 2:3, like a DVD cover (e.g. 1000×1500) | Cards that are not selected |
+| Background | Wide 16:9 (e.g. 1920×1080) | The selected card, the details and show screens |
+| Logo | The title as a **transparent PNG** | Details screen, show page, pause screen |
+
+Episodes use their show's pictures. Without a logo, the title shows as text.
+
+The details screen shows a year and a synopsis when they exist: TV shows → **Details** (the
+show's year and synopsis), and **Edit** → Description on any video (an episode's own synopsis
+wins over the show's). Downloads keep the site's description. There is no metadata service and
+no API key; a later import (for example from free datasets) can fill the same fields:
+`shows.year`, `shows.description`, `videos.description`.
 
 Check the code without a Roku: `npx -p brighterscript bsc --rootDir roku --createPackage false`.
 

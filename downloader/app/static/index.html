@@ -44,6 +44,12 @@
   .subs-add { display:flex; flex-wrap:wrap; gap:12px; align-items:center; font-size:13px; }
   .subs-add select { padding:4px 6px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); }
   button.ghost.on { color:var(--accent); border-color:var(--accent); }
+  .art-slots { display:flex; flex-wrap:wrap; gap:16px; margin-top:8px; }
+  .art-slot { display:flex; flex-direction:column; gap:6px; font-size:13px; }
+  .art-slot .pic { display:flex; align-items:center; justify-content:center; background:#000; border-radius:8px; overflow:hidden; color:var(--muted); font-size:12px; }
+  .art-slot .pic img { width:100%; height:100%; object-fit:contain; border-radius:0; background:none; }
+  .art-slot .row { display:flex; gap:6px; }
+  .art-slot .row button { padding:3px 10px; font-size:13px; }
   li.group.show img.art { width:96px; height:54px; object-fit:cover; border-radius:4px; vertical-align:middle; margin-right:10px; }
   li.group button { padding:2px 8px; font-size:12px; }
   .seen { color:var(--ok); }
@@ -180,6 +186,7 @@ function row(v) {
     const n = (v.subtitles || []).length;
     actions.append(el("button", { className: "ghost" + (subsOpen === v.id ? " on" : ""), textContent: n ? `Subtitles (${n})` : "Subtitles",
       onclick: () => { subsOpen = subsOpen === v.id ? null : v.id; render(); } }));
+    if (v.kind === "movie") actions.append(artButton(`video:${v.id}`));
   }
   // A failed import has no file left to retry; upload it again instead.
   if (v.status === "failed" && v.source !== "upload") actions.append(el("button", { className: "ghost", textContent: "Retry",
@@ -189,7 +196,10 @@ function row(v) {
   if (!busy) actions.append(el("button", { className: "ghost", textContent: "Delete",
     onclick: () => confirm("Delete this video?") && api("DELETE", `/api/videos/${v.id}`).then(refresh) }));
   const li = el("li", {}, thumb, info, actions);
-  return subsOpen === v.id ? [li, subsPanel(v)] : li;
+  const out = [li];
+  if (subsOpen === v.id) out.push(subsPanel(v));
+  if (artOpen === `video:${v.id}`) out.push(artPanel(`/api/videos/${v.id}/art`, v.artwork || {}, v.title));
+  return out.length === 1 ? li : out;
 }
 
 // --- subtitles --------------------------------------------------------------------
@@ -393,26 +403,60 @@ function showInfoRow(name) {
   return el("li", {}, form);
 }
 
-// Show artwork: pick an image and send it as the raw request body.
-function pickArt(name) {
-  const input = el("input", { type: "file", accept: "image/*" });
-  input.onchange = async () => {
-    const file = input.files[0];
-    if (!file) return;
-    $("msg").textContent = `Uploading artwork for ${name}…`;
-    try {
-      const res = await fetch(`/api/shows/${encodeURIComponent(name)}/art`, {
-        method: "PUT", headers: { "X-Api-Token": getToken(), "Content-Type": file.type || "application/octet-stream" },
-        body: file,
-      });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
-      $("msg").textContent = `Artwork saved for ${name}.`;
-      refresh();
-    } catch (e) {
-      $("msg").textContent = "Artwork upload failed: " + e.message;
-    }
-  };
-  input.click();
+// --- artwork ------------------------------------------------------------------------
+// Three pictures per show or movie. The server crops each one to its shape, so any
+// picture works. Like the subtitles panel, an open panel pauses the 2-second redraw.
+let artOpen = null; // "show:<name>" or "video:<id>"
+
+const ART_SLOTS = [
+  ["boxart", "Box art", "Tall, like a DVD cover (2:3). Shown on cards that are not selected.", 80, 120],
+  ["background", "Background", "Wide (16:9). The selected card, the details and show screens.", 192, 108],
+  ["logo", "Logo", "The title as a transparent PNG. Details, show and pause screens.", 200, 80],
+];
+
+function artButton(owner) {
+  return el("button", { className: "ghost" + (artOpen === owner ? " on" : ""), textContent: "Artwork",
+    title: "Box art, background and logo for the TV", onclick: () => { artOpen = artOpen === owner ? null : owner; render(); } });
+}
+
+function artPanel(path, artwork, label) {
+  const err = el("span", { className: "muted failed" });
+  function upload(slot) {
+    const input = el("input", { type: "file", accept: "image/*" });
+    input.onchange = async () => {
+      const file = input.files[0];
+      if (!file) return;
+      $("msg").textContent = `Uploading ${slot} for ${label}…`;
+      try {
+        const res = await fetch(`${path}?slot=${slot}`, {
+          method: "PUT", headers: { "X-Api-Token": getToken(), "Content-Type": file.type || "application/octet-stream" },
+          body: file,
+        });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+        $("msg").textContent = `Saved the ${slot} for ${label}.`;
+        refresh(true);
+      } catch (e) {
+        $("msg").textContent = "";
+        err.textContent = "Upload failed: " + e.message;
+      }
+    };
+    input.click();
+  }
+  const slots = ART_SLOTS.map(([slot, name, hint, w, h]) => el("div", { className: "art-slot", style: `width:${Math.max(w, 200)}px` },
+    el("strong", { textContent: name }),
+    el("div", { className: "pic", style: `width:${w}px; height:${h}px` },
+      artwork[slot] ? el("img", { src: artwork[slot], alt: "" }) : "none"),
+    el("div", { className: "muted", textContent: hint }),
+    el("div", { className: "row" },
+      el("button", { textContent: artwork[slot] ? "Change" : "Upload", onclick: () => upload(slot) }),
+      artwork[slot] ? el("button", { className: "ghost", textContent: "Remove", onclick: async () => {
+        if (!confirm(`Remove the ${name.toLowerCase()} for ${label}?`)) return;
+        await api("DELETE", `${path}?slot=${slot}`);
+        refresh(true);
+      } }) : "")));
+  return el("li", { className: "subs" },
+    el("div", {}, el("strong", { textContent: `Artwork for ${label}` }), " ", err,
+      el("div", { className: "art-slots" }, ...slots)));
 }
 
 // TV shows: a heading per show (with its markers), a sub-heading per season
@@ -431,8 +475,9 @@ function showRows(list) {
       const sm = shows[name] || {};
       const summary = [sm.intro_start != null ? `intro ${fmtTime(sm.intro_start)}–${fmtTime(sm.intro_end)}` : "",
         sm.credits_before_end != null ? `credits ${fmtTime(sm.credits_before_end)} before end` : ""].filter(Boolean).join(" · ");
+      const art = sm.artwork || {};
       out.push(el("li", { className: "group show" },
-        sm.art_url ? el("img", { className: "art", src: sm.art_url, alt: "" }) : "",
+        art.background ? el("img", { className: "art", src: art.background, alt: "" }) : "",
         name, " ",
         el("span", { textContent: summary || "no intro/credits markers" }), " ",
         v.show ? el("button", { className: "ghost", textContent: "Details",
@@ -440,13 +485,9 @@ function showRows(list) {
           onclick: () => { editingInfo = name; render(); } }) : "", " ",
         v.show ? el("button", { className: "ghost", textContent: "Intro & credits",
           onclick: () => { editingShow = name; render(); } }) : "", " ",
-        v.show ? el("button", { className: "ghost", textContent: sm.art_url ? "Change artwork" : "Artwork",
-          title: "A wide picture (16:9 works best) for the show's card, the TV home banner and the show screen",
-          onclick: () => pickArt(name) }) : "", " ",
-        sm.art_url ? el("button", { className: "ghost", textContent: "Remove artwork",
-          onclick: () => confirm(`Remove the artwork for ${name}?`) &&
-            api("DELETE", `/api/shows/${encodeURIComponent(name)}/art`).then(refresh) }) : ""));
+        v.show ? artButton(`show:${name}`) : ""));
       if (editingInfo === name) out.push(showInfoRow(name));
+      if (artOpen === `show:${name}`) out.push(artPanel(`/api/shows/${encodeURIComponent(name)}/art`, art, name));
       if (editingShow === name) out.push(showMarkersRow(name));
     }
     if (v.season !== curSeason) {
@@ -488,7 +529,7 @@ async function refresh(force = false) {
     const data = await api("GET", "/api/videos");
     videos = data.videos;
     shows = data.shows || {};
-    if (force || (editing === null && editingShow === null && editingInfo === null && subsOpen === null)) render();
+    if (force || (editing === null && editingShow === null && editingInfo === null && subsOpen === null && artOpen === null)) render();
     const d = data.disk;
     $("disk").textContent = `${d.free_gb} GB free of ${d.total_gb} GB · downloads stop below ${d.min_free_gb} GB`;
   } catch (e) {
