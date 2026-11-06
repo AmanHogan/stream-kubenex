@@ -70,6 +70,12 @@
     <Animation id="scrollAnim" duration="0.25" easeFunction="outQuad">
       <Vector2DFieldInterpolator id="scrollTo" key="[0.0, 1.0]" fieldToInterp="stack.translation" />
     </Animation>
+    <!-- The hero slides up and fades as the rows rise (and back down on return),
+         in step with scrollAnim. -->
+    <Animation id="heroAnim" duration="0.4" easeFunction="inOutCubic">
+      <Vector2DFieldInterpolator id="heroMove" key="[0.0, 1.0]" fieldToInterp="hero.translation" />
+      <FloatFieldInterpolator id="heroFade" key="[0.0, 1.0]" fieldToInterp="hero.opacity" />
+    </Animation>
     <Timer id="heroTimer" repeat="false" duration="15" />
   </children>
 </component>

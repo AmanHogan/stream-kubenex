@@ -11,6 +11,10 @@ end function
 sub init()
     m.stack = m.top.findNode("stack")
     m.scrollAnim = m.top.findNode("scrollAnim")
+    m.heroAnim = m.top.findNode("heroAnim")
+    m.heroMove = m.top.findNode("heroMove")
+    m.heroFade = m.top.findNode("heroFade")
+    m.heroAnim.observeField("state", "onHeroAnimState")
     m.scrollTo = m.top.findNode("scrollTo")
     m.heroGroup = m.top.findNode("hero")
     m.heroButtons = m.top.findNode("heroButtons")
@@ -201,6 +205,12 @@ sub onFocusChange()
     scheduleHero()
 end sub
 
+' How the hero and the rows move between the two places: slower and smoother than
+' row to row, because they travel far.
+function heroSlideSeconds() as Float
+    return 0.4
+end function
+
 sub enterHero()
     if not hasHero() then return
     if m.stack.getChildCount() > 0 then m.stack.getChild(m.rowIndex).active = false
@@ -208,7 +218,8 @@ sub enterHero()
     m.top.heroFocused = true
     m.heroGroup.visible = true
     stackHeroLines()
-    layoutRows(true)
+    slideHero(true)
+    layoutRows(true, heroSlideSeconds())
     m.heroButtons.setFocus(true)
     m.top.focusedItem = invalid
     scheduleHero()
@@ -218,13 +229,35 @@ sub leaveHero(animate as Boolean)
     stopHero()
     m.onHero = false
     m.top.heroFocused = false
-    m.heroGroup.visible = false
-    if m.stack.getChildCount() = 0 then return
+    if m.stack.getChildCount() = 0 or not animate
+        m.heroGroup.visible = false
+        if m.stack.getChildCount() = 0 then return
+    else
+        slideHero(false)
+    end if
     m.rowIndex = 0
     m.stack.getChild(0).active = true
-    layoutRows(animate)
+    layoutRows(animate, heroSlideSeconds())
     m.rowsFocus.setFocus(true)
     m.top.focusedItem = currentItem()
+end sub
+
+' The hero moves up by as much as the rows do, so the two travel together.
+sub slideHero(show as Boolean)
+    up = [0, top() - heroRowsTop()]
+    m.heroAnim.control = "stop"
+    if show
+        m.heroMove.keyValue = [m.heroGroup.translation, [0, 0]]
+        m.heroFade.keyValue = [m.heroGroup.opacity, 1.0]
+    else
+        m.heroMove.keyValue = [m.heroGroup.translation, up]
+        m.heroFade.keyValue = [m.heroGroup.opacity, 0.0]
+    end if
+    m.heroAnim.control = "start"
+end sub
+
+sub onHeroAnimState()
+    if m.heroAnim.state = "stopped" and not m.onHero then m.heroGroup.visible = false
 end sub
 
 ' --- rows ---------------------------------------------------------------------------
@@ -268,6 +301,11 @@ sub onContent()
     if m.onHero and not hasHero() then m.onHero = false
     m.top.heroFocused = m.onHero
     m.heroGroup.visible = m.onHero
+    if m.onHero
+        m.heroAnim.control = "stop"
+        m.heroGroup.translation = [0, 0]
+        m.heroGroup.opacity = 1.0
+    end if
     ' Text sizes are measured again now that the hero shows.
     if m.onHero then stackHeroLines()
     if m.stack.getChildCount() = 0
@@ -293,7 +331,7 @@ end function
 
 ' Stack the rows. On the hero they peek under it; else the active row goes under the
 ' header and the rows above it hide.
-sub layoutRows(animate as Boolean)
+sub layoutRows(animate as Boolean, seconds = 0.25 as Float)
     y = 0
     activeY = 0
     for i = 0 to m.stack.getChildCount() - 1
@@ -310,6 +348,12 @@ sub layoutRows(animate as Boolean)
     end if
     m.scrollAnim.control = "stop"
     if animate
+        m.scrollAnim.duration = seconds
+        if seconds > 0.3
+            m.scrollAnim.easeFunction = "inOutCubic"
+        else
+            m.scrollAnim.easeFunction = "outQuad"
+        end if
         m.scrollTo.keyValue = [m.stack.translation, target]
         m.scrollAnim.control = "start"
     else
