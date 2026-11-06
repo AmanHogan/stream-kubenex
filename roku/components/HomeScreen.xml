@@ -46,6 +46,8 @@
       <Poster uri="pkg:/images/fade_left.png" translation="[96,104]" width="1150" height="720" loadDisplayMode="scaleToFill" />
       <Poster uri="pkg:/images/fade_bottom.png" translation="[96,424]" width="1728" height="400" loadDisplayMode="scaleToFill" />
       <Poster uri="pkg:/images/round_mask_lg.9.png" translation="[96,104]" width="1728" height="720" />
+      <!-- A thin red border on the same rounded edge. -->
+      <Poster uri="pkg:/images/ring_lg.9.png" translation="[96,104]" width="1728" height="720" blendColor="0xE50914FF" />
       <Label id="heroKicker" translation="[160,136]" font="font:SmallBoldSystemFont" color="0xBDBDBDFF" />
       <Logo id="heroLogo" translation="[160,180]" maxWidth="700" maxHeight="190" />
       <Label id="heroMeta" translation="[160,0]" width="1000" font="font:SmallSystemFont" color="0xBDBDBDFF" />
@@ -66,7 +68,7 @@
     <Rectangle id="headerBar" width="1920" height="104" color="0x000000FF" />
     <Label id="statusLabel" translation="[96,42]" width="1100" font="font:SmallestSystemFont" color="0x8C8C8CFF" />
     <!-- The app name, styled as a logo, top right. -->
-    <Label id="brand" text="STREAM KUBENEX" translation="[1224,30]" width="600" horizAlign="right" font="font:MediumBoldSystemFont" color="0xE50914FF" />
+    <Label id="brand" text="KUBENEX" translation="[1224,30]" width="600" horizAlign="right" font="font:MediumBoldSystemFont" color="0xE50914FF" />
     <Animation id="scrollAnim" duration="0.25" easeFunction="outQuad">
       <Vector2DFieldInterpolator id="scrollTo" key="[0.0, 1.0]" fieldToInterp="stack.translation" />
     </Animation>
