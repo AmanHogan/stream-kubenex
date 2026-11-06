@@ -14,8 +14,8 @@ sub init()
     m.upNextButton = m.top.findNode("upNextButton")
     m.countdown = m.top.findNode("countdown")
     m.dialog = m.top.findNode("dialog")
-    m.pauseBar = m.top.findNode("pauseBar")
-    m.pauseButtons = m.top.findNode("pauseButtons")
+    m.controls = m.top.findNode("controls")
+    m.controls.video = m.video
     m.details = m.top.findNode("details")
     m.detailsBack = m.top.findNode("detailsBack")
     m.detailsArt = m.top.findNode("detailsArt")
@@ -24,6 +24,7 @@ sub init()
     m.previewProgress = m.top.findNode("previewProgress")
     m.previewTrack = m.top.findNode("previewTrack")
     m.previewBar = m.top.findNode("previewBar")
+    m.previewMask = m.top.findNode("previewMask")
     m.previewTimer = m.top.findNode("previewTimer")
     ' enableUI="false" hides the player's own bars; older firmware may lack it.
     for each bar in [m.previewVideo.bufferingBar, m.previewVideo.retrievingBar, m.previewVideo.trickPlayBar]
@@ -50,7 +51,7 @@ sub init()
     m.countdown.observeField("fire", "onCountdown")
     m.dialog.observeField("selected", "onDialogSelected")
     m.dialog.observeField("cancelled", "onDialogCancelled")
-    m.pauseButtons.observeField("selected", "onPauseButton")
+    m.controls.observeField("action", "onControlsAction")
 
     m.api = CreateObject("roSGNode", "ApiTask")
     m.api.observeField("completed", "onApiCompleted")
@@ -62,7 +63,7 @@ sub init()
     m.videos = {}
     m.current = invalid       ' the video playing now (an entry of m.videos)
     m.choices = []
-    m.pauseActions = []
+    m.wasPlaying = false      ' was the video playing when a menu opened over it
     m.detailsVideo = invalid  ' the video on the details screen
     m.previewing = invalid    ' the video in the preview
     ' Subtitle choice, kept on this Roku: "off", or "<language>" / "<language>:sdh".
@@ -257,13 +258,16 @@ sub placePreview()
     else
         rect = m.home.cardRect
     end if
-    ' The details screen has its own progress bar.
+    ' The details screen has its own progress bar and soft edges instead of corners.
     m.previewProgress.visible = not m.details.visible
+    m.previewMask.visible = not m.details.visible
     m.preview.translation = [rect[0], rect[1]]
     m.previewVideo.width = rect[2]
     m.previewVideo.height = rect[3]
+    m.previewMask.width = rect[2]
+    m.previewMask.height = rect[3]
     m.previewTrack.width = rect[2]
-    m.previewProgress.translation = [0, rect[3] - 7]
+    m.previewProgress.translation = [0, rect[3] + 10]
     updatePreviewBar()
 end sub
 
@@ -379,8 +383,31 @@ sub play(v as Object, start as Integer)
     hideOverlays()
     m.video.content = content
     m.video.visible = true
-    m.video.setFocus(true)
+    setControlsInfo(v)
+    m.controls.visible = true
+    m.controls.setFocus(true)
     m.video.control = "play"
+end sub
+
+sub setControlsInfo(v as Object)
+    m.controls.callFunc("reset", {})
+    isEpisode = v.kind = "episode" and v.show <> invalid
+    title = "Untitled"
+    if v.title <> invalid then title = v.title
+    name = title
+    episode = ""
+    if isEpisode
+        name = v.show
+        episode = (episodeCode(v) + "  " + title).Trim()
+    else if v.year <> invalid
+        episode = v.year.ToStr()
+    end if
+    m.controls.info = {
+        logo: strOr(v.logo), title: name, episode: episode, duration: intOr(v.duration, 0),
+        hasPrevious: v.prev_id <> invalid and m.videos.DoesExist(v.prev_id),
+        hasNext: v.next_id <> invalid and m.videos.DoesExist(v.next_id),
+        hasSubtitles: hasSubtitles(v)
+    }
 end sub
 
 sub onVideoPosition()
@@ -418,7 +445,7 @@ end sub
 sub hideSkip()
     focused = m.skipButton.hasFocus()
     m.skip.visible = false
-    if focused then m.video.setFocus(true)
+    if focused then m.controls.setFocus(true)
 end sub
 
 sub showUpNext()
@@ -449,7 +476,7 @@ sub dismissUpNext()
     m.countdown.control = "stop"
     m.upNext.visible = false
     m.upNextState = "dismissed"
-    m.video.setFocus(true)
+    m.controls.setFocus(true)
 end sub
 
 sub playNext()
@@ -468,51 +495,22 @@ sub hideOverlays()
     m.countdown.control = "stop"
     m.skip.visible = false
     m.upNext.visible = false
-    m.pauseBar.visible = false
 end sub
 
-' --- pause controls ---------------------------------------------------------------
+' --- pause screen icons ---------------------------------------------------------------
 
-sub showPauseBar()
+sub onControlsAction()
+    a = m.controls.action.action
     v = m.current
     if v = invalid then return
-    m.pauseActions = [{ label: "Resume", action: "resume" }]
-    if v.prev_id <> invalid and m.videos.DoesExist(v.prev_id)
-        m.pauseActions.Push({ label: "Previous episode", action: "episode", id: v.prev_id })
-    end if
-    m.pauseActions.Push({ label: "Play from beginning", action: "startover" })
-    if v.next_id <> invalid and m.videos.DoesExist(v.next_id)
-        m.pauseActions.Push({ label: "Next episode", action: "episode", id: v.next_id })
-    end if
-    if hasSubtitles(v) then m.pauseActions.Push({ label: "Subtitles", action: "subtitles" })
-    labels = []
-    for each a in m.pauseActions
-        labels.Push(a.label)
-    end for
-    m.pauseButtons.buttons = labels
-    m.pauseBar.visible = true
-    ' Resume first, so OK on a paused video still resumes it.
-    m.pauseButtons.focusIndex = 0
-    m.pauseButtons.setFocus(true)
-end sub
-
-sub hidePauseBar()
-    inFocus = m.pauseButtons.isInFocusChain()
-    m.pauseBar.visible = false
-    if inFocus then m.video.setFocus(true)
-end sub
-
-sub onPauseButton()
-    a = m.pauseActions[m.pauseButtons.selected]
-    hidePauseBar()
-    if a.action = "resume"
-        m.video.control = "resume"
-    else if a.action = "startover"
+    if a = "startover"
         m.video.seek = 0
         m.video.control = "resume"
-    else if a.action = "episode"
-        play(m.videos[a.id], 0)
-    else if a.action = "subtitles"
+    else if a = "previous" and v.prev_id <> invalid
+        play(m.videos[v.prev_id], 0)
+    else if a = "next" and v.next_id <> invalid
+        play(m.videos[v.next_id], 0)
+    else if a = "subtitles"
         openSubtitleMenu()
     end if
 end sub
@@ -586,6 +584,7 @@ sub openSubtitleMenu()
     for each c in choices
         if c.label = mark then c.label = c.label + "   (on)"
     end for
+    m.wasPlaying = m.video.state = "playing"
     m.video.control = "pause"
     showMenu("Subtitles", choices)
 end sub
@@ -601,12 +600,18 @@ sub onVideoState()
     state = m.video.state
     ' Subtitle tracks are known once the video plays; apply the saved choice then.
     if state = "playing" and not m.subsApplied then applySubtitles()
+    ' A seek sent while paused can start playback; pause again on the new frame.
+    if state = "playing" and m.controls.holdPause
+        m.controls.holdPause = false
+        m.video.control = "pause"
+        return
+    end if
     if state = "paused"
-        ' The menu pauses the video too; it has its own choices.
-        if not m.dialog.visible and not m.upNext.visible then showPauseBar()
+        ' A menu pauses the video too; it has its own choices.
+        if not m.dialog.visible and not m.upNext.visible then m.controls.callFunc("showPaused", {})
         if m.upNext.visible then m.countdown.control = "stop"
     else if state = "playing"
-        if m.pauseBar.visible then hidePauseBar()
+        m.controls.callFunc("onPlaying", {})
         if m.upNext.visible then m.countdown.control = "start"
     end if
     if state = "error"
@@ -629,6 +634,8 @@ sub closeVideo()
     hideOverlays()
     m.video.control = "stop"
     m.video.visible = false
+    m.controls.callFunc("reset", {})
+    m.controls.visible = false
     restoreCaptionMode()
     restoreFocus()
     reloadAfterUpdates()
@@ -653,8 +660,15 @@ sub onDialogSelected()
 end sub
 
 sub onDialogCancelled()
-    if m.video.visible and m.video.state = "paused" then m.video.control = "resume"
     restoreFocus()
+    ' Back to how it was: playing, or the pause screen.
+    if m.video.visible and m.video.state = "paused"
+        if m.wasPlaying
+            m.video.control = "resume"
+        else
+            m.controls.callFunc("showPaused", {})
+        end if
+    end if
 end sub
 
 sub runChoice(c as Object)
@@ -668,7 +682,7 @@ sub runChoice(c as Object)
     else if c.action = "startover"
         m.video.seek = 0
         m.video.control = "resume"
-        m.video.setFocus(true)
+        m.controls.setFocus(true)
     else if c.action = "refresh"
         loadLibrary()
         restoreFocus()
@@ -677,7 +691,7 @@ sub runChoice(c as Object)
         m.prefs.Flush()
         applySubtitles()
         m.video.control = "resume"
-        m.video.setFocus(true)
+        m.controls.setFocus(true)
     else if c.action = "subtitlemenu"
         openSubtitleMenu()
     end if
@@ -685,7 +699,7 @@ end sub
 
 sub restoreFocus()
     if m.video.visible
-        m.video.setFocus(true)
+        m.controls.setFocus(true)
     else if m.showScreen.visible
         m.showScreen.callFunc("restoreFocus", {})
     else if m.details.visible
@@ -763,6 +777,7 @@ sub openPlayerMenu()
     end if
     choices.Push({ label: "Play from beginning", action: "startover" })
     if hasSubtitles(v) then choices.Push({ label: "Subtitles", action: "subtitlemenu" })
+    m.wasPlaying = m.video.state = "playing"
     m.video.control = "pause"
     showMenu(episodeLabel(v), choices)
 end sub
@@ -784,26 +799,14 @@ function onKeyEvent(key as String, press as Boolean) as Boolean
             openPlayerMenu()
             return true
         end if
-        ' The keys below reach this scene only while the Skip intro or Up Next
-        ' button has focus. Keep playback controls working anyway.
-        if key = "play"
-            if m.video.state = "playing"
-                m.video.control = "pause"
-            else
-                m.video.control = "resume"
-            end if
-            return true
+        ' Other keys reach this scene from the Skip intro or Up Next button (they
+        ' use only OK). Pass them to the controls, which seek and pause.
+        if m.skip.visible
+            m.skipDismissed = true
+            hideSkip()
         end if
-        if key = "fwd" or key = "rev" or key = "left" or key = "right" or key = "up" or key = "down"
-            if m.skip.visible
-                m.skipDismissed = true
-                hideSkip()
-            end if
-            if m.pauseBar.visible then hidePauseBar()
-            m.video.setFocus(true)
-            return true
-        end if
-        return false
+        m.controls.setFocus(true)
+        return m.controls.callFunc("handleKey", key)
     end if
     if m.showScreen.visible then return false
     if key = "options"

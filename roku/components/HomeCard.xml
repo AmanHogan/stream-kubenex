@@ -1,45 +1,54 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- One card in a home row. Small: a 512x288 picture and one line of text.
-     Expanded (the selected card of the selected row): the picture grows to
-     960x540, with three lines under it. HomeRow sets x and expanded; the card
-     animates itself there. -->
+<!-- One card in a home row, 480 high. Not selected: the box art (320 wide, like a
+     DVD cover). Selected (in the active row): the wide picture (854 wide), with three
+     lines under it. Without box art, the wide picture is cropped to the box shape and
+     the name is written on it. Black corner masks round the corners on the black page.
+     HomeRow sets x and expanded; the card animates itself there. -->
 <component name="HomeCard" extends="Group">
   <interface>
     <field id="itemContent" type="node" onChange="onContent" />
     <!-- Place in the row, in pixels. -->
     <field id="x" type="float" onChange="onX" />
     <field id="expanded" type="boolean" onChange="onExpanded" />
-    <!-- false: jump to the new x / size at once (first layout, refresh). -->
+    <!-- false: jump to the new place at once (first layout, refresh). -->
     <field id="animate" type="boolean" value="false" />
   </interface>
   <script type="text/brightscript" uri="pkg:/components/HomeCard.brs" />
   <children>
     <Group id="root">
-      <Group id="pic">
-        <!-- Shows through when there is no picture. -->
-        <Rectangle width="512" height="288" color="0x262626FF" />
-        <Poster id="poster" width="512" height="288" loadWidth="512" loadHeight="288" loadDisplayMode="scaleToFill" />
-        <!-- Full-size picture, loaded only while expanded. -->
-        <Poster id="bigPoster" width="512" height="288" loadWidth="960" loadHeight="540" loadDisplayMode="scaleToFill" />
-        <Rectangle id="track" translation="[0,284]" width="512" height="4" color="0xFFFFFF40" visible="false" />
-        <Rectangle id="bar" translation="[0,284]" width="0" height="4" color="0xE50914FF" visible="false" />
-        <Group id="badge" translation="[396,10]" visible="false">
-          <Rectangle width="106" height="30" color="0x000000B3" />
-          <Label text="Watched" width="106" height="30" horizAlign="center" vertAlign="center" font="font:SmallestBoldSystemFont" color="0xFFFFFFFF" />
+      <Group id="box">
+        <Rectangle width="320" height="480" color="0x1A1A1AFF" />
+        <Group id="fallback" visible="false">
+          <Poster id="fallbackPoster" width="320" height="480" loadWidth="320" loadHeight="480" loadDisplayMode="scaleToZoom" />
+          <Poster uri="pkg:/images/fade_bottom.png" translation="[0,240]" width="320" height="240" loadDisplayMode="scaleToFill" />
+          <Label id="fallbackName" translation="[20,340]" width="280" height="120" wrap="true" maxLines="3" vertAlign="bottom" font="font:MediumBoldSystemFont" color="0xFFFFFFFF" />
         </Group>
+        <Poster id="boxPoster" width="320" height="480" loadWidth="320" loadHeight="480" loadDisplayMode="scaleToFill" />
+        <Poster uri="pkg:/images/round_mask.9.png" width="320" height="480" />
       </Group>
-      <Label id="small" translation="[0,300]" width="512" font="font:SmallSystemFont" color="0xBDBDBDFF" />
-      <Group id="info" translation="[0,556]" visible="false">
-        <Label id="line1" width="960" font="font:MediumBoldSystemFont" color="0xFFFFFFFF" />
-        <Label id="line2" translation="[0,50]" width="960" font="font:SmallSystemFont" color="0x8C8C8CFF" />
-        <Label id="line3" translation="[0,92]" width="960" font="font:SmallSystemFont" color="0xD4D4D4FF" />
+      <!-- Drawn over the box art; fades in when the card is selected. -->
+      <Group id="wide" visible="false">
+        <Rectangle width="854" height="480" color="0x1A1A1AFF" />
+        <Poster id="widePoster" width="854" height="480" loadWidth="854" loadHeight="480" loadDisplayMode="scaleToZoom" />
+        <Poster uri="pkg:/images/round_mask.9.png" width="854" height="480" />
+      </Group>
+      <Group id="badge" translation="[12,12]" visible="false">
+        <Poster id="badgeBg" uri="pkg:/images/btn.9.png" height="34" blendColor="0x000000CC" />
+        <Label id="badgeText" text="Watched" translation="[14,0]" height="34" vertAlign="center" font="font:SmallestBoldSystemFont" color="0xFFFFFFFF" />
+      </Group>
+      <Rectangle id="track" translation="[0,490]" width="320" height="5" color="0xFFFFFF40" visible="false" />
+      <Rectangle id="bar" translation="[0,490]" width="0" height="5" color="0xE50914FF" visible="false" />
+      <Group id="info" translation="[0,508]" visible="false">
+        <Label id="line1" width="854" font="font:MediumBoldSystemFont" color="0xFFFFFFFF" />
+        <Label id="line2" translation="[0,50]" width="854" font="font:SmallSystemFont" color="0x8C8C8CFF" />
+        <Label id="line3" translation="[0,92]" width="854" font="font:SmallSystemFont" color="0xD4D4D4FF" />
       </Group>
     </Group>
     <Animation id="moveAnim" duration="0.22" easeFunction="outQuad">
       <Vector2DFieldInterpolator id="moveTo" key="[0.0, 1.0]" fieldToInterp="root.translation" />
     </Animation>
-    <Animation id="growAnim" duration="0.22" easeFunction="outQuad">
-      <Vector2DFieldInterpolator id="growTo" key="[0.0, 1.0]" fieldToInterp="pic.scale" />
+    <Animation id="fadeAnim" duration="0.25" easeFunction="outQuad">
+      <FloatFieldInterpolator key="[0.0, 1.0]" keyValue="[0.0, 1.0]" fieldToInterp="wide.opacity" />
     </Animation>
   </children>
 </component>

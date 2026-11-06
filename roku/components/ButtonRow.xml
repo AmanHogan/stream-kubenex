@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- A row of FlatButtons. Give it focus; Left and Right move the highlight, OK
-     sets "selected". Up, Down and Back go to the parent. -->
+<!-- A row (or, with vertical, a column) of FlatButtons. Give it focus; the arrow
+     keys move the highlight and OK sets "selected". Other keys go to the parent. -->
 <component name="ButtonRow" extends="Group">
   <interface>
     <field id="buttons" type="array" onChange="onButtons" />
+    <!-- Optional, one per button: pkg:/images/icon_*.png or "". Set before buttons. -->
+    <field id="icons" type="array" />
+    <field id="vertical" type="boolean" value="false" />
     <field id="minWidth" type="integer" value="240" />
     <field id="spacing" type="integer" value="20" />
     <!-- In and out: the highlighted button. -->

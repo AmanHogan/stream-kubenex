@@ -1,7 +1,8 @@
-' Card sizes (see HomeCard): small 512x288, expanded 960x540.
+' Card sizes (see HomeCard): box art 320x480, selected 854x480 (16:9), same height.
+' The active row has room for the three lines under its selected card.
 function layout() as Object
-    return { small: 512, big: 960, gap: 32, titleHeight: 56,
-        activeHeight: 56 + 540 + 150, restHeight: 56 + 288 + 64 }
+    return { small: 320, big: 854, gap: 24, titleHeight: 56,
+        activeHeight: 56 + 480 + 166 + 24, restHeight: 56 + 480 + 48 }
 end function
 
 sub init()
@@ -52,7 +53,7 @@ sub place(animate as Boolean)
         card.x = cardX(k, f)
         card.expanded = m.top.active and k = f
         ' Cards to the left of the selection are off screen; cards far right too.
-        card.visible = (k >= f - 1 and k <= f + 4)
+        card.visible = (k >= f - 1 and k <= f + 6)
     end for
     target = [-f * (m.L.small + m.L.gap), 0]
     m.slideAnim.control = "stop"

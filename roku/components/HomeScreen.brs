@@ -8,7 +8,7 @@ sub init()
     m.scrollAnim = m.top.findNode("scrollAnim")
     m.scrollTo = m.top.findNode("scrollTo")
     m.rowIndex = 0
-    m.top.cardRect = [96, top() + 56, 960, 540]
+    m.top.cardRect = [96, top() + 56, 854, 480]
 end sub
 
 sub onStatus()

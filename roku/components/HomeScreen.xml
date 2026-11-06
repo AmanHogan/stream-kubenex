@@ -19,9 +19,10 @@
   <script type="text/brightscript" uri="pkg:/components/HomeScreen.brs" />
   <children>
     <Group id="stack" translation="[96,120]" />
-    <Rectangle width="1920" height="104" color="0x0A0A0AFF" />
-    <Label id="header" text="Stream Kubenex" translation="[96,36]" font="font:MediumBoldSystemFont" color="0xE50914FF" />
-    <Label id="statusLabel" translation="[760,42]" width="1064" horizAlign="right" font="font:SmallestSystemFont" color="0x8C8C8CFF" />
+    <Rectangle width="1920" height="104" color="0x000000FF" />
+    <Label id="statusLabel" translation="[96,42]" width="1100" font="font:SmallestSystemFont" color="0x8C8C8CFF" />
+    <!-- The app name, styled as a logo, top right. -->
+    <Label id="brand" text="STREAM KUBENEX" translation="[1224,30]" width="600" horizAlign="right" font="font:MediumBoldSystemFont" color="0xE50914FF" />
     <Animation id="scrollAnim" duration="0.25" easeFunction="outQuad">
       <Vector2DFieldInterpolator id="scrollTo" key="[0.0, 1.0]" fieldToInterp="stack.translation" />
     </Animation>

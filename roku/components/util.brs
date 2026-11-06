@@ -7,21 +7,22 @@ sub fillVideoItem(item as Object, v as Object)
     item.addFields({ itemType: "video", showIndex: -1, videoId: v.id,
         progressPos: intOr(v.position, 0), lengthSec: intOr(v.duration, 0), isWatched: v.watched = true })
     item.title = title
-    ' Home cards: one line when small; three when expanded (name, then the episode in
-    ' grey, then the time left).
+    ' The three lines under a selected home card: the name, the episode in grey, then
+    ' the time left. cardName goes on a card that has no box art.
     if v.kind = "episode" and v.show <> invalid
-        code = episodeCode(v)
-        item.addFields({ line1: v.show, line2: (code + "  " + title).Trim(), line3: watchState(v),
-            smallLabel: (v.show + "  " + code).Trim() })
+        item.addFields({ line1: v.show, line2: (episodeCode(v) + "  " + title).Trim(), line3: watchState(v),
+            cardName: v.show })
     else
         line2 = ""
         if v.kind = "movie" and v.year <> invalid then line2 = v.year.ToStr()
         if v.kind = "clip" and v.uploader <> invalid then line2 = v.uploader
-        item.addFields({ line1: title, line2: line2, line3: watchState(v), smallLabel: title })
+        item.addFields({ line1: title, line2: line2, line3: watchState(v), cardName: title })
     end if
     item.url = v.url
-    item.HDPOSTERURL = v.thumbnail
-    item.HDGRIDPOSTERURL = v.thumbnail
+    ' The wide picture (show or movie background, else the thumbnail), the box art
+    ' ("" = none) and the episode's own thumbnail (show screen).
+    item.HDPOSTERURL = strOr(v.art)
+    item.addFields({ boxUrl: strOr(v.boxart), thumbUrl: strOr(v.thumbnail) })
     item.SHORTDESCRIPTIONLINE1 = title
     item.SHORTDESCRIPTIONLINE2 = videoSubtitle(v)
 end sub
@@ -68,6 +69,11 @@ function episodeLabel(v as Object) as String
     if v.episode <> invalid then label = label + "E" + v.episode.ToStr() + "  "
     if v.title <> invalid then label = label + v.title
     return label
+end function
+
+function strOr(value as Dynamic) as String
+    if value = invalid then return ""
+    return value
 end function
 
 ' JSON null arrives as invalid; numbers may arrive as Integer or Double.

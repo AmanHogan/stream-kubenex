@@ -12,12 +12,14 @@ sub onVideo()
     name = "Untitled"
     if v.title <> invalid then name = v.title
 
-    title = m.top.findNode("title")
+    ' The logo when one was uploaded, else the name as text.
+    logo = m.top.findNode("logo")
     if isEpisode
-        title.text = v.show
+        logo.text = v.show
     else
-        title.text = name
+        logo.text = name
     end if
+    logo.uri = strOr(v.logo)
 
     ' "2011  ·  3 Seasons  ·  58 min" — each part only when known.
     parts = []
@@ -60,24 +62,27 @@ sub onVideo()
 
     m.actions = []
     if position > 0 and v.watched <> true
-        m.actions.Push({ label: "Resume", action: "play", start: position })
-        m.actions.Push({ label: "Play from beginning", action: "play", start: 0 })
+        m.actions.Push({ label: "Resume", action: "play", start: position, icon: "play" })
+        m.actions.Push({ label: "Play from beginning", action: "play", start: 0, icon: "restart" })
     else
-        m.actions.Push({ label: "Play", action: "play", start: 0 })
+        m.actions.Push({ label: "Play", action: "play", start: 0, icon: "play" })
     end if
-    if isEpisode then m.actions.Push({ label: "Go to show", action: "show" })
+    if isEpisode then m.actions.Push({ label: "Go to show", action: "show", icon: "episodes" })
     labels = []
+    icons = []
     for each a in m.actions
         labels.Push(a.label)
+        icons.Push("pkg:/images/icon_" + a.icon + ".png")
     end for
+    m.buttons.icons = icons
     m.buttons.buttons = labels
     m.buttons.focusIndex = 0
-    stackLines(title)
+    stackLines()
 end sub
 
 ' Put each line under the one above it, skipping empty ones.
-sub stackLines(title as Object)
-    y = 150 + Int(title.boundingRect().height) + 18
+sub stackLines()
+    y = 90 + 220 + 24
     for each id in ["meta", "episode", "progress", "synopsis"]
         node = m.top.findNode(id)
         shown = node.visible
@@ -92,9 +97,7 @@ sub stackLines(title as Object)
             end if
         end if
     end for
-    ' The buttons sit low enough that a long synopsis never pushes them off screen.
-    if y < 640 then y = 640
-    m.buttons.translation = [96, y + 20]
+    m.buttons.translation = [96, y + 16]
 end sub
 
 sub onButton()

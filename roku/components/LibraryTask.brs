@@ -94,6 +94,6 @@ sub addShowRow(root as Object, shows as Object)
         end if
         year = ""
         if s.year <> invalid then year = s.year.ToStr()
-        item.addFields({ line1: s.name, line2: sizes, line3: year, smallLabel: s.name })
+        item.addFields({ line1: s.name, line2: sizes, line3: year, cardName: s.name, boxUrl: strOr(s.boxart) })
     end for
 end sub

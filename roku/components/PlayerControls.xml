@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Our own player controls. They hold focus during playback, so the first OK
+     pauses (the Roku player would take it to show its own bar).
+       Playing: OK or Play pauses. Left/Right seek 10 s, Rewind/Fast-forward 30 s;
+         the bar shows for 4 s.
+       Paused: the logo (or title), the episode, and the icons; focus starts on the
+         progress bar. OK or Play resumes, Left/Right seek, Up goes to the icons,
+         Down back to the bar. The highlighted icon shows its name.
+     Back and * go to MainScene. -->
+<component name="PlayerControls" extends="Group">
+  <interface>
+    <field id="video" type="node" onChange="onVideo" />
+    <!-- { logo, title, episode, duration, hasPrevious, hasNext, hasSubtitles } -->
+    <field id="info" type="assocarray" onChange="onInfo" />
+    <!-- Out: an icon was pressed. { action: "startover" | "previous" | "next" | "subtitles" } -->
+    <field id="action" type="assocarray" alwaysNotify="true" />
+    <!-- Set when a seek is sent while paused. The player may start playing after
+         the seek; MainScene pauses it again and clears this. -->
+    <field id="holdPause" type="boolean" />
+    <function name="reset" />
+    <function name="showPaused" />
+    <function name="onPlaying" />
+    <function name="handleKey" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/PlayerControls.brs" />
+  <children>
+    <Group id="bottom" visible="false">
+      <Poster id="shade" uri="pkg:/images/fade_bottom.png" translation="[0,380]" width="1920" height="700" loadDisplayMode="scaleToFill" />
+      <!-- Paused only. -->
+      <Group id="details">
+        <Logo id="logo" translation="[96,450]" maxWidth="640" maxHeight="200" />
+        <Label id="episode" translation="[96,670]" width="1500" font="font:MediumBoldSystemFont" color="0xFFFFFFFF" />
+        <Group id="icons" translation="[96,740]" />
+        <Label id="tip" width="300" horizAlign="center" font="font:SmallBoldSystemFont" color="0xFFFFFFFF" />
+      </Group>
+      <Group id="barGroup" translation="[96,930]">
+        <Rectangle id="track" width="1728" height="6" color="0xFFFFFF4D" />
+        <Rectangle id="fill" width="0" height="6" color="0xE50914FF" />
+        <Poster id="knob" uri="pkg:/images/circle.png" width="28" height="28" visible="false" />
+        <Label id="elapsed" translation="[0,26]" font="font:SmallSystemFont" color="0xFFFFFFFF" />
+        <Label id="remaining" translation="[1228,26]" width="500" horizAlign="right" font="font:SmallSystemFont" color="0xBDBDBDFF" />
+      </Group>
+    </Group>
+    <Timer id="hideTimer" duration="4" />
+    <Timer id="seekTimer" duration="0.7" />
+  </children>
+</component>

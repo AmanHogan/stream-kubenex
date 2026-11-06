@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- A title's logo, fitted inside maxWidth x maxHeight and sitting on the bottom-left
+     corner of that box. Without a logo (or while it loads) the text shows instead. -->
+<component name="Logo" extends="Group">
+  <interface>
+    <field id="uri" type="string" onChange="onUri" />
+    <field id="text" type="string" onChange="onText" />
+    <field id="maxWidth" type="integer" value="600" />
+    <field id="maxHeight" type="integer" value="220" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/Logo.brs" />
+  <children>
+    <Label id="label" wrap="true" maxLines="2" font="font:LargeBoldSystemFont" color="0xFFFFFFFF" />
+    <Poster id="poster" visible="false" loadDisplayMode="scaleToFit" />
+  </children>
+</component>

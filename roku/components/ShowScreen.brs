@@ -17,9 +17,18 @@ sub onShow()
     if sameShow then keepEpisode = m.episodes.itemFocused
     if not sameShow then m.seasonIndex = 0
     m.showName = show.name
-    m.top.findNode("name").text = show.name
+    logo = m.top.findNode("logo")
+    logo.text = show.name
+    logo.uri = strOr(show.logo)
     m.top.findNode("backdrop").uri = show.art
+    parts = []
+    if show.year <> invalid then parts.Push(show.year.ToStr())
+    count = intOr(show.season_count, 0)
+    if count = 1 then parts.Push("1 Season")
+    if count > 1 then parts.Push(count.ToStr() + " Seasons")
+    m.top.findNode("meta").text = parts.Join("   " + Chr(183) + "   ")
 
+    ' "Season 1  (10 episodes)"
     list = CreateObject("roSGNode", "ContentNode")
     for each s in show.seasons
         item = list.createChild("ContentNode")
@@ -27,6 +36,12 @@ sub onShow()
             item.title = "Other"
         else
             item.title = "Season " + s.season.ToStr()
+        end if
+        n = s.episodes.Count()
+        if n = 1
+            item.title = item.title + "  (1 episode)"
+        else
+            item.title = item.title + "  (" + n.ToStr() + " episodes)"
         end if
     end for
     if m.seasonIndex >= show.seasons.Count() then m.seasonIndex = 0
@@ -60,11 +75,14 @@ sub showSeason(index as Integer)
     for each e in seasons[index].episodes
         item = grid.createChild("ContentNode")
         fillVideoItem(item, e)
-        ' Two caption lines: "E5  Title" and the watch state.
+        ' "5.  Title", then "45 min" or "12 min left" or "Watched", then the synopsis.
         label = item.title
-        if e.episode <> invalid then label = "E" + e.episode.ToStr() + "  " + label
-        item.SHORTDESCRIPTIONLINE1 = label
-        item.SHORTDESCRIPTIONLINE2 = watchState(e)
+        if e.episode <> invalid then label = e.episode.ToStr() + ".  " + label
+        parts = []
+        if e.duration <> invalid and e.duration > 0 then parts.Push(Int((e.duration + 59) / 60).ToStr() + " min")
+        if e.watched = true or intOr(e.position, 0) > 0 then parts.Push(watchState(e))
+        meta = parts.Join("   " + Chr(183) + "   ")
+        item.addFields({ episodeTitle: label, episodeMeta: meta, episodeDesc: strOr(e.description) })
     end for
     m.episodes.content = grid
 end sub

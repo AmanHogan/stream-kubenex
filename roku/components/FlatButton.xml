@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <!-- One flat, rounded button: white with dark text when highlighted, dark grey
-     otherwise. No icon. ButtonRow lays these out and moves the highlight. -->
+     otherwise. An optional icon sits left of the text. ButtonRow lays these out
+     and moves the highlight. -->
 <component name="FlatButton" extends="Group">
   <interface>
-    <field id="text" type="string" onChange="onText" />
-    <field id="minWidth" type="integer" value="240" onChange="onText" />
+    <field id="text" type="string" onChange="layout" />
+    <!-- pkg:/images/icon_*.png, white on clear; "" = no icon. -->
+    <field id="icon" type="string" onChange="layout" />
+    <field id="minWidth" type="integer" value="240" onChange="layout" />
     <field id="highlighted" type="boolean" onChange="onHighlighted" />
     <!-- Out: the width after the text is set. -->
     <field id="width" type="integer" />
@@ -12,6 +15,7 @@
   <script type="text/brightscript" uri="pkg:/components/FlatButton.brs" />
   <children>
     <Poster id="bg" uri="pkg:/images/btn.9.png" height="72" blendColor="0x333333FF" />
-    <Label id="label" height="72" horizAlign="center" vertAlign="center" font="font:SmallBoldSystemFont" color="0xFFFFFFFF" />
+    <Poster id="glyph" translation="[28,18]" width="36" height="36" visible="false" />
+    <Label id="label" height="72" vertAlign="center" font="font:SmallBoldSystemFont" color="0xFFFFFFFF" />
   </children>
 </component>

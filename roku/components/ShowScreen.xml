@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- One TV show: seasons on the left, that season's episodes on the right. -->
+<!-- One TV show: the logo, year and seasons on the left; the selected season's
+     episodes, with their synopses, on the right. -->
 <component name="ShowScreen" extends="Group">
   <interface>
     <!-- One entry of library.shows. Setting it opens the screen; setting the same
@@ -16,24 +17,28 @@
   <script type="text/brightscript" uri="pkg:/components/ShowScreen.brs" />
   <script type="text/brightscript" uri="pkg:/components/util.brs" />
   <children>
-    <Rectangle color="0x0A0A0AFF" width="1920" height="1080" />
-    <!-- The show's artwork, faint, behind everything. -->
-    <Poster id="backdrop" width="1920" height="1080" loadDisplayMode="scaleToFill" opacity="0.18" />
-    <Label id="name" translation="[96,48]" font="font:LargeBoldSystemFont" />
-    <Label id="hint" translation="[96,108]" font="font:SmallSystemFont" color="0xA3A3A3FF"
-      text="Left and Right move between seasons and episodes  -  OK plays  -  * for more  -  Back returns" />
+    <Rectangle color="0x000000FF" width="1920" height="1080" />
+    <!-- The show's background, dim, behind everything; darker on the left. -->
+    <Poster id="backdrop" width="1920" height="1080" loadWidth="1920" loadHeight="1080" loadDisplayMode="scaleToZoom" opacity="0.35" />
+    <Poster uri="pkg:/images/fade_left.png" width="1200" height="1080" loadDisplayMode="scaleToFill" />
+
+    <Logo id="logo" translation="[96,70]" maxWidth="520" maxHeight="180" />
+    <Label id="meta" translation="[96,272]" width="520" font="font:SmallSystemFont" color="0xBDBDBDFF" />
     <!-- The season you are in stays marked (grey) while focus is on the episodes. -->
-    <LabelList id="seasons" translation="[96,180]" itemSize="[320,64]" numRows="12"
+    <LabelList id="seasons" translation="[96,340]" itemSize="[520,68]" numRows="10"
       focusBitmapUri="pkg:/images/btn.9.png" focusFootprintBitmapUri="pkg:/images/btn.9.png"
       focusFootprintBlendColor="0x333333FF" color="0xFFFFFFFF" focusedColor="0x111111FF" />
-    <PosterGrid id="episodes"
-      translation="[480,180]"
-      basePosterSize="[352,198]"
-      itemSpacing="[28,84]"
-      numColumns="3"
-      numRows="3"
-      caption1NumLines="1"
-      caption2NumLines="1"
-      posterDisplayMode="scaleToFit" />
+    <MarkupList id="episodes"
+      translation="[680,60]"
+      itemComponentName="EpisodeItem"
+      itemSize="[1144,212]"
+      itemSpacing="[0,16]"
+      numRows="4"
+      vertFocusAnimationStyle="floatingFocus"
+      drawFocusFeedbackOnTop="false"
+      focusBitmapUri="pkg:/images/btn.9.png"
+      focusBitmapBlendColor="0xFFFFFF26"
+      focusFootprintBitmapUri="pkg:/images/btn.9.png"
+      focusFootprintBlendColor="0x00000000" />
   </children>
 </component>
