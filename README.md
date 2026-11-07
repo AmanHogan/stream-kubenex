@@ -194,8 +194,11 @@ until you press **Refresh**. It fills in only what is missing:
 
 Episodes imported later get their title and synopsis from the local copy at once. Files
 numbered straight through (S01E37 where TVmaze's season 1 is shorter) use TVmaze's running
-episode number. TVmaze has no synopses for some older anime episodes (original Naruto); those
-get titles only. Data is CC BY-SA, credited on the web form. Movies are not covered (TVmaze is
+episode number. TVmaze has few synopses for some anime (13 of original Naruto's 220
+episodes). For those, the same panel has a **MyAnimeList (anime)** section: link the show to
+its MyAnimeList entry (through [Tenrai](https://tenrai.org), the successor of the Jikan API,
+free and keyless) and the server copies every episode's synopsis (`anime_shows`,
+`anime_episodes`; about 1 call per 100 episodes). It fills only what TVmaze left empty. Data is CC BY-SA, credited on the web form. Movies are not covered (TVmaze is
 TV only).
 
 ## Artwork and show details

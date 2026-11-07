@@ -91,7 +91,9 @@
   </nav>
   <ul id="list"></ul>
   <datalist id="show-names"></datalist>
-  <footer>Show and episode data from <a href="https://www.tvmaze.com" target="_blank" rel="noopener">TVmaze</a> (CC BY-SA).</footer>
+  <footer>Show and episode data from <a href="https://www.tvmaze.com" target="_blank" rel="noopener">TVmaze</a> (CC BY-SA);
+    anime episode synopses from <a href="https://myanimelist.net" target="_blank" rel="noopener">MyAnimeList</a> through
+    <a href="https://tenrai.org" target="_blank" rel="noopener">Tenrai</a>.</footer>
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -419,7 +421,7 @@ let matchOpen = null; // show name
 function matchButton(name) {
   const m = (shows[name] || {}).tvmaze;
   return el("button", { className: "ghost" + (matchOpen === name ? " on" : ""),
-    textContent: m ? "TVmaze ✓" : "Match",
+    textContent: m ? ((shows[name] || {}).anime ? "TVmaze ✓ MAL ✓" : "TVmaze ✓") : "Match",
     title: m ? `Matched to ${m.name} on TVmaze` : "Fill in episode titles, synopses and pictures from TVmaze",
     onclick: () => { matchOpen = matchOpen === name ? null : name; render(); } });
 }
@@ -466,7 +468,47 @@ function matchPanel(name) {
   return el("li", { className: "subs" },
     el("div", { style: "flex:1" }, el("strong", { textContent: `TVmaze for ${name}` }), head,
       el("div", { className: "subs-add" }, q, el("button", { textContent: "Search", onclick: search })),
-      note, results));
+      note, results, animeSection(name)));
+}
+
+// Anime only: MyAnimeList (through Tenrai) fills the synopses and titles TVmaze lacks.
+function animeSection(name) {
+  const path = `/api/shows/${encodeURIComponent(name)}/anime`;
+  const a = (shows[name] || {}).anime;
+  const q = el("input", { value: a ? a.title : name, placeholder: "Anime name on MyAnimeList" });
+  const results = el("div", { className: "match-results" });
+  const note = el("div", { className: "muted" });
+  function done(r) {
+    $("msg").textContent = `${name}: linked to ${r.title} on MyAnimeList (${r.anime_synopses} of ${r.anime_episodes} ` +
+      `episodes have a synopsis). Added ${r.synopses_added} synopses.`;
+    matchOpen = null;
+    refresh(true);
+  }
+  async function run(label, fn) {
+    note.textContent = label;
+    try { await fn(); } catch (e) { note.textContent = e.message; }
+  }
+  const search = () => run("Searching MyAnimeList…", async () => {
+    const r = await api("GET", `${path}/search?q=${encodeURIComponent(q.value)}`);
+    note.textContent = r.results.length ? "Pick the right one (the series, not a movie or special):" : "No match.";
+    results.replaceChildren(...r.results.map((hit) => el("div", { className: "match-hit" },
+      hit.image ? el("img", { src: hit.image, alt: "" }) : el("div", { className: "ph" }),
+      el("div", { className: "info" },
+        el("strong", { textContent: hit.title_english || hit.title }), " ",
+        el("span", { className: "muted", textContent: [hit.type, hit.year, hit.episodes ? `${hit.episodes} episodes` : ""].filter(Boolean).join(" · ") }),
+        el("div", { className: "muted", textContent: hit.synopsis })),
+      el("button", { textContent: "Use this", onclick: () => run(`Copying episodes from MyAnimeList…`,
+        async () => done(await api("PUT", path, { mal_id: hit.mal_id }))) }))));
+  });
+  q.addEventListener("keydown", (ev) => { if (ev.key === "Enter") search(); });
+  const head = a
+    ? el("div", {}, "Linked to ", el("strong", { textContent: a.title }), " on MyAnimeList. ",
+        el("button", { className: "ghost", textContent: "Refresh", onclick: () => run("Refreshing…", async () => done(await api("POST", `${path}/refresh`))) }), " ",
+        el("button", { className: "ghost", textContent: "Unlink", onclick: () => run("", async () => { await api("DELETE", path); matchOpen = null; refresh(true); }) }))
+    : el("div", { className: "muted", textContent: "Anime only: fills episode synopses TVmaze does not have." });
+  return el("div", { style: "margin-top:14px; padding-top:10px; border-top:1px solid var(--line)" },
+    el("strong", { textContent: "MyAnimeList (anime)" }), head,
+    el("div", { className: "subs-add" }, q, el("button", { textContent: "Search", onclick: search })), note, results);
 }
 
 // --- artwork ------------------------------------------------------------------------

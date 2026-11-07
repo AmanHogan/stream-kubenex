@@ -41,7 +41,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Res
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import library, playback, subtitles, tvmaze
+from . import library, playback, subtitles, tenrai, tvmaze
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 MEDIA_DIR = DATA_DIR / "media"
@@ -186,6 +186,20 @@ CREATE TABLE IF NOT EXISTS tvmaze_episodes (
     airdate     TEXT,
     runtime     INTEGER,
     PRIMARY KEY (tvmaze_id, season, number)
+);
+-- MyAnimeList (through Tenrai) for anime: a backup for synopses TVmaze lacks.
+CREATE TABLE IF NOT EXISTS anime_shows (
+    show        TEXT PRIMARY KEY,           -- our show name
+    mal_id      INTEGER NOT NULL,
+    title       TEXT NOT NULL,
+    fetched_at  REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS anime_episodes (
+    mal_id      INTEGER NOT NULL,
+    number      INTEGER NOT NULL,           -- 1, 2, 3... within that anime
+    title       TEXT,
+    synopsis    TEXT,
+    PRIMARY KEY (mal_id, number)
 );
 """
 ART_DIR = MEDIA_DIR / "art"
@@ -711,13 +725,18 @@ def show_markers(conn: sqlite3.Connection) -> dict[str, dict]:
     for owner in art:
         if owner.startswith("show:"):
             shows.setdefault(owner[5:], {"name": owner[5:]})
+    for (name,) in conn.execute("SELECT show FROM tvmaze_shows UNION SELECT show FROM anime_shows"):
+        shows.setdefault(name, {"name": name})
     matches = {r["show"]: r for r in conn.execute("SELECT show, tvmaze_id, name, genres, fetched_at FROM tvmaze_shows")}
+    anime = {r["show"]: r for r in conn.execute("SELECT show, mal_id, title FROM anime_shows")}
     for name, s in shows.items():
         slots = art.get(f"show:{name}", {})
         s["artwork"] = {slot: slots.get(slot, "") for slot in ART_SLOTS}
         m = matches.get(name)
         s["tvmaze"] = {"id": m["tvmaze_id"], "name": m["name"], "fetched_at": m["fetched_at"]} if m else None
         s["genres"] = json.loads(m["genres"]) if m and m["genres"] else []
+        a = anime.get(name)
+        s["anime"] = {"mal_id": a["mal_id"], "title": a["title"]} if a else None
     return shows
 
 
@@ -1121,10 +1140,12 @@ def tvmaze_episode(conn: sqlite3.Connection, tvmaze_id: int, season: int | None,
 
 
 def apply_tvmaze(conn: sqlite3.Connection, show: str, vid: str | None = None) -> int:
-    """Fill the show's episodes (or just one) from the local TVmaze copy. Returns how
-    many episodes found their TVmaze entry."""
+    """Fill the show's episodes (or just one) from the local copies: TVmaze first, then
+    MyAnimeList for titles and synopses still missing. Returns how many episodes found
+    an entry in either."""
     m = conn.execute("SELECT tvmaze_id FROM tvmaze_shows WHERE show = ?", (show,)).fetchone()
-    if m is None:
+    a = conn.execute("SELECT mal_id FROM anime_shows WHERE show = ?", (show,)).fetchone()
+    if m is None and a is None:
         return 0
     sql = "SELECT id, title, description, season, episode FROM videos WHERE kind = 'episode' AND show = ?"
     args: tuple = (show,)
@@ -1133,15 +1154,28 @@ def apply_tvmaze(conn: sqlite3.Connection, show: str, vid: str | None = None) ->
         args = (show, vid)
     found = 0
     for v in conn.execute(sql, args).fetchall():
-        ep = tvmaze_episode(conn, m["tvmaze_id"], v["season"], v["episode"])
-        if ep is None:
-            continue
-        found += 1
+        title, desc = (v["title"] or "").strip(), (v["description"] or "").strip()
         changes = {}
-        if ep["name"] and AUTO_TITLE.match((v["title"] or "").strip()):
-            changes["title"] = ep["name"]
-        if ep["summary"] and not (v["description"] or "").strip():
-            changes["description"] = ep["summary"]
+        ep = tvmaze_episode(conn, m["tvmaze_id"], v["season"], v["episode"]) if m else None
+        if ep is not None:
+            if ep["name"] and AUTO_TITLE.match(title):
+                changes["title"] = title = ep["name"]
+            if ep["summary"] and not desc:
+                changes["description"] = desc = ep["summary"]
+        # MyAnimeList numbers episodes straight through one anime entry; TVmaze's running
+        # number gives that for files with seasons, else the file's own episode number.
+        number = ep["absolute"] if ep is not None else (v["episode"] if v["season"] in (None, 1) else None)
+        ae = None
+        if a is not None and number is not None:
+            ae = conn.execute("SELECT title, synopsis FROM anime_episodes WHERE mal_id = ? AND number = ?",
+                              (a["mal_id"], number)).fetchone()
+            if ae is not None:
+                if ae["title"] and AUTO_TITLE.match(title):
+                    changes["title"] = ae["title"]
+                if ae["synopsis"] and not desc:
+                    changes["description"] = ae["synopsis"]
+        if ep is not None or ae is not None:
+            found += 1
         if changes:
             cols = ", ".join(f"{k} = ?" for k in changes)
             conn.execute(f"UPDATE videos SET {cols} WHERE id = ?", (*changes.values(), v["id"]))
@@ -1252,6 +1286,87 @@ def tvmaze_unlink(name: str) -> Response:
         conn.execute("DELETE FROM tvmaze_shows WHERE show = ?", (name,))
         if not conn.execute("SELECT 1 FROM tvmaze_shows WHERE tvmaze_id = ?", (m["tvmaze_id"],)).fetchone():
             conn.execute("DELETE FROM tvmaze_episodes WHERE tvmaze_id = ?", (m["tvmaze_id"],))
+    return Response(status_code=204)
+
+
+def match_anime(name: str, mal_id: int) -> dict:
+    with db() as conn:
+        require_show(conn, name)
+    try:
+        data = tenrai.fetch(mal_id)
+    except HTTPError as e:
+        if e.code == 404:
+            raise HTTPException(404, "MyAnimeList has no anime with that id.")
+        raise HTTPException(502, f"Tenrai answered {e.code}.")
+    except (OSError, ValueError) as e:
+        raise HTTPException(502, f"Tenrai did not answer: {e}")
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO anime_shows (show, mal_id, title, fetched_at) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(show) DO UPDATE SET mal_id = excluded.mal_id, title = excluded.title, "
+            "fetched_at = excluded.fetched_at",
+            (name, data["mal_id"], data["title"], time.time()),
+        )
+        conn.execute("DELETE FROM anime_episodes WHERE mal_id = ?", (data["mal_id"],))
+        conn.executemany(
+            "INSERT OR REPLACE INTO anime_episodes (mal_id, number, title, synopsis) VALUES (?, ?, ?, ?)",
+            [(data["mal_id"], e["number"], e["title"], e["synopsis"]) for e in data["episodes"]],
+        )
+        before = conn.execute("SELECT COUNT(*) FROM videos WHERE kind = 'episode' AND show = ? "
+                              "AND TRIM(COALESCE(description, '')) <> ''", (name,)).fetchone()[0]
+        found = apply_tvmaze(conn, name)
+        after = conn.execute("SELECT COUNT(*) FROM videos WHERE kind = 'episode' AND show = ? "
+                             "AND TRIM(COALESCE(description, '')) <> ''", (name,)).fetchone()[0]
+        total = conn.execute("SELECT COUNT(*) FROM videos WHERE kind = 'episode' AND show = ?", (name,)).fetchone()[0]
+    return {"show": name, "mal_id": data["mal_id"], "title": data["title"],
+            "anime_episodes": len(data["episodes"]),
+            "anime_synopses": sum(1 for e in data["episodes"] if e["synopsis"]),
+            "episodes_matched": found, "episodes_total": total, "synopses_added": after - before}
+
+
+class AnimeMatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mal_id: int = Field(ge=1)
+
+
+@app.get("/api/shows/{name}/anime/search", dependencies=[Depends(require_token)])
+def anime_search(name: str, q: str = Query(default="", max_length=200)) -> dict:
+    """MyAnimeList entries (through Tenrai) that match q, default the show's name."""
+    with db() as conn:
+        require_show(conn, name)
+    query = q.strip() or name
+    try:
+        return {"query": query, "results": tenrai.search(query)}
+    except (OSError, ValueError) as e:
+        raise HTTPException(502, f"Tenrai did not answer: {e}")
+
+
+@app.put("/api/shows/{name}/anime", dependencies=[Depends(require_token)])
+def anime_link(name: str, req: AnimeMatch) -> dict:
+    """Use this MyAnimeList entry as the backup for the show's missing synopses."""
+    return match_anime(name, req.mal_id)
+
+
+@app.post("/api/shows/{name}/anime/refresh", dependencies=[Depends(require_token)])
+def anime_refresh(name: str) -> dict:
+    with db() as conn:
+        a = conn.execute("SELECT mal_id FROM anime_shows WHERE show = ?", (name,)).fetchone()
+    if a is None:
+        raise HTTPException(404, "That show is not linked to MyAnimeList.")
+    return match_anime(name, a["mal_id"])
+
+
+@app.delete("/api/shows/{name}/anime", status_code=204, dependencies=[Depends(require_token)])
+def anime_unlink(name: str) -> Response:
+    """Forget the link. Text already filled in stays."""
+    with db() as conn:
+        a = conn.execute("SELECT mal_id FROM anime_shows WHERE show = ?", (name,)).fetchone()
+        if a is None:
+            raise HTTPException(404, "That show is not linked to MyAnimeList.")
+        conn.execute("DELETE FROM anime_shows WHERE show = ?", (name,))
+        if not conn.execute("SELECT 1 FROM anime_shows WHERE mal_id = ?", (a["mal_id"],)).fetchone():
+            conn.execute("DELETE FROM anime_episodes WHERE mal_id = ?", (a["mal_id"],))
     return Response(status_code=204)
 
 
