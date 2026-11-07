@@ -181,6 +181,23 @@ episode's Edit can override it. Stopping in the first 30 seconds leaves nothing 
 `POST /api/progress` and `/api/watched` need no token, like the feed: the Roku cannot keep a
 secret, and they change watch state only.
 
+## Show and episode data from TVmaze
+
+Web form → TV shows → **Match** on a show: search TVmaze (free, no key), pick the right show,
+and the server copies the show and **all its episodes** into its own database
+(`tvmaze_shows`, `tvmaze_episodes`). That is 3 calls per show; nothing calls TVmaze again
+until you press **Refresh**. It fills in only what is missing:
+
+- the show's year, synopsis and genres;
+- each episode's title (only auto names like "Episode 19") and synopsis;
+- box art (TVmaze's poster) and a background picture, where you uploaded none.
+
+Episodes imported later get their title and synopsis from the local copy at once. Files
+numbered straight through (S01E37 where TVmaze's season 1 is shorter) use TVmaze's running
+episode number. TVmaze has no synopses for some older anime episodes (original Naruto); those
+get titles only. Data is CC BY-SA, credited on the web form. Movies are not covered (TVmaze is
+TV only).
+
 ## Artwork and show details
 
 Each show and each movie can have three pictures (web form → TV shows → **Artwork**, or

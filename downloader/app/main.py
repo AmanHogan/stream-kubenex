@@ -19,6 +19,7 @@ import hmac
 import ipaddress
 import json
 import os
+import re
 import shutil
 import socket
 import sqlite3
@@ -29,6 +30,7 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal
+from urllib.error import HTTPError
 from urllib.parse import urlsplit
 
 import anyio
@@ -39,7 +41,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Res
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import library, playback, subtitles
+from . import library, playback, subtitles, tvmaze
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 MEDIA_DIR = DATA_DIR / "media"
@@ -160,6 +162,31 @@ CREATE TABLE IF NOT EXISTS artwork (
     version INTEGER NOT NULL,
     PRIMARY KEY (owner, slot)
 )
+"""
+# A local copy of TVmaze's data for each show you matched (web form -> Match): the
+# show, and every regular episode. Episodes imported later get their title and
+# synopsis from here without another call.
+TVMAZE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS tvmaze_shows (
+    show        TEXT PRIMARY KEY,           -- our show name
+    tvmaze_id   INTEGER NOT NULL,
+    name        TEXT NOT NULL,              -- TVmaze's name for it
+    premiered   TEXT,
+    summary     TEXT,
+    genres      TEXT,                       -- JSON list
+    fetched_at  REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tvmaze_episodes (
+    tvmaze_id   INTEGER NOT NULL,
+    season      INTEGER NOT NULL,
+    number      INTEGER NOT NULL,
+    absolute    INTEGER NOT NULL,           -- 1, 2, 3... across all seasons
+    name        TEXT,
+    summary     TEXT,
+    airdate     TEXT,
+    runtime     INTEGER,
+    PRIMARY KEY (tvmaze_id, season, number)
+);
 """
 ART_DIR = MEDIA_DIR / "art"
 MAX_ART_BYTES = 15 * 1024 * 1024
@@ -519,6 +546,12 @@ def import_file(row: sqlite3.Row) -> None:
     except Exception as e:  # ffprobe/ffmpeg fail in many ways; all mean "this import failed"
         remove_files(vid)
         set_fields(vid, status="failed", error=str(e)[:500])
+        return
+    # A matched show's new episode gets its title and synopsis (local copy, no call).
+    try:
+        apply_tvmaze_to_video(vid)
+    except sqlite3.Error:
+        pass
 
 
 # The Roku shows the focused card at 960x540 and the details backdrop at 1280x720.
@@ -574,6 +607,7 @@ def startup() -> None:
         conn.execute(SHOWS_SCHEMA)
         conn.execute(SUBTITLES_SCHEMA)
         conn.execute(ARTWORK_SCHEMA)
+        conn.executescript(TVMAZE_SCHEMA)
         have_shows = {r["name"] for r in conn.execute("PRAGMA table_info(shows)")}
         for col, sql_type in SHOWS_ADDED_COLUMNS.items():
             if col not in have_shows:
@@ -677,9 +711,13 @@ def show_markers(conn: sqlite3.Connection) -> dict[str, dict]:
     for owner in art:
         if owner.startswith("show:"):
             shows.setdefault(owner[5:], {"name": owner[5:]})
+    matches = {r["show"]: r for r in conn.execute("SELECT show, tvmaze_id, name, genres, fetched_at FROM tvmaze_shows")}
     for name, s in shows.items():
         slots = art.get(f"show:{name}", {})
         s["artwork"] = {slot: slots.get(slot, "") for slot in ART_SLOTS}
+        m = matches.get(name)
+        s["tvmaze"] = {"id": m["tvmaze_id"], "name": m["name"], "fetched_at": m["fetched_at"]} if m else None
+        s["genres"] = json.loads(m["genres"]) if m and m["genres"] else []
     return shows
 
 
@@ -848,6 +886,10 @@ def update_video(vid: str, req: VideoUpdate) -> dict:
         if changes:
             cols = ", ".join(f"{k} = ?" for k in changes)
             conn.execute(f"UPDATE videos SET {cols} WHERE id = ?", (*changes.values(), vid))
+    # Fixing an episode's show, season or number may now find its TVmaze entry.
+    if {"show", "season", "episode", "kind"} & changes.keys():
+        apply_tvmaze_to_video(vid)
+    with db() as conn:
         updated = dict(conn.execute("SELECT * FROM videos WHERE id = ?", (vid,)).fetchone())
     return updated
 
@@ -976,7 +1018,11 @@ async def save_artwork(owner: str, slot: str, request: Request) -> dict:
     body = await request.body()
     if len(body) > MAX_ART_BYTES:
         raise HTTPException(413, "The body is larger than Content-Length.")
+    return await anyio.to_thread.run_sync(lambda: store_artwork(owner, slot, body))
 
+
+def store_artwork(owner: str, slot: str, body: bytes) -> dict:
+    """Crop or fit an image to its slot's shape and record it."""
     ext, vf = ART_SLOTS[slot]
     ART_DIR.mkdir(parents=True, exist_ok=True)
     # The file name comes from a hash: show names may hold any character.
@@ -986,10 +1032,10 @@ async def save_artwork(owner: str, slot: str, request: Request) -> dict:
     try:
         upload.write_bytes(body)
         # ffmpeg reads any common image format (JPEG, PNG, WebP...).
-        proc = await anyio.to_thread.run_sync(lambda: subprocess.run(
+        proc = subprocess.run(
             ["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", str(upload), "-frames:v", "1",
              "-vf", vf, *(["-q:v", "3"] if ext == "jpg" else []), "-f", "image2", str(tmp)],
-            capture_output=True, timeout=60))
+            capture_output=True, timeout=60)
         if proc.returncode != 0 or not tmp.exists():
             raise HTTPException(400, "That file is not an image ffmpeg can read.")
         tmp.rename(ART_DIR / filename)
@@ -1049,6 +1095,163 @@ async def set_video_art(vid: str, request: Request, slot: str = "background") ->
 def delete_video_art(vid: str, slot: str = "background") -> Response:
     if not delete_artwork(f"video:{vid}", slot):
         raise HTTPException(404, "That video has no artwork in that slot.")
+    return Response(status_code=204)
+
+
+# --- TVmaze metadata ------------------------------------------------------------
+# Match a show once (pick it from a search); the server copies the show and all its
+# episodes into tvmaze_shows / tvmaze_episodes and fills in what is missing. Text you
+# typed and pictures you uploaded are never replaced.
+
+# Titles the importer made up when the file name had none ("Episode 19").
+AUTO_TITLE = re.compile(r"^(episode\s*\d+|ep\.?\s*\d+|e\d+|untitled|)$", re.IGNORECASE)
+
+
+def tvmaze_episode(conn: sqlite3.Connection, tvmaze_id: int, season: int | None, number: int | None):
+    """TVmaze's episode for our S/E numbers. Files numbered straight through (S01E37
+    where TVmaze's season 1 has 35) fall back to the running number."""
+    if number is None:
+        return None
+    row = conn.execute("SELECT * FROM tvmaze_episodes WHERE tvmaze_id = ? AND season = ? AND number = ?",
+                       (tvmaze_id, season if season is not None else 1, number)).fetchone()
+    if row is None and season in (None, 1):
+        row = conn.execute("SELECT * FROM tvmaze_episodes WHERE tvmaze_id = ? AND absolute = ?",
+                           (tvmaze_id, number)).fetchone()
+    return row
+
+
+def apply_tvmaze(conn: sqlite3.Connection, show: str, vid: str | None = None) -> int:
+    """Fill the show's episodes (or just one) from the local TVmaze copy. Returns how
+    many episodes found their TVmaze entry."""
+    m = conn.execute("SELECT tvmaze_id FROM tvmaze_shows WHERE show = ?", (show,)).fetchone()
+    if m is None:
+        return 0
+    sql = "SELECT id, title, description, season, episode FROM videos WHERE kind = 'episode' AND show = ?"
+    args: tuple = (show,)
+    if vid:
+        sql += " AND id = ?"
+        args = (show, vid)
+    found = 0
+    for v in conn.execute(sql, args).fetchall():
+        ep = tvmaze_episode(conn, m["tvmaze_id"], v["season"], v["episode"])
+        if ep is None:
+            continue
+        found += 1
+        changes = {}
+        if ep["name"] and AUTO_TITLE.match((v["title"] or "").strip()):
+            changes["title"] = ep["name"]
+        if ep["summary"] and not (v["description"] or "").strip():
+            changes["description"] = ep["summary"]
+        if changes:
+            cols = ", ".join(f"{k} = ?" for k in changes)
+            conn.execute(f"UPDATE videos SET {cols} WHERE id = ?", (*changes.values(), v["id"]))
+    return found
+
+
+def apply_tvmaze_to_video(vid: str) -> None:
+    """After an import or an edit: fill one episode from its show's local copy."""
+    with db() as conn:
+        r = conn.execute("SELECT show FROM videos WHERE id = ? AND kind = 'episode'", (vid,)).fetchone()
+        if r and r["show"]:
+            apply_tvmaze(conn, r["show"], vid)
+
+
+def match_show(name: str, tvmaze_id: int) -> dict:
+    with db() as conn:
+        require_show(conn, name)
+    try:
+        data = tvmaze.fetch_show(tvmaze_id)
+    except HTTPError as e:
+        if e.code == 404:
+            raise HTTPException(404, "TVmaze has no show with that id.")
+        raise HTTPException(502, f"TVmaze answered {e.code}.")
+    except (OSError, ValueError) as e:
+        raise HTTPException(502, f"TVmaze did not answer: {e}")
+
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO tvmaze_shows (show, tvmaze_id, name, premiered, summary, genres, fetched_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(show) DO UPDATE SET tvmaze_id = excluded.tvmaze_id, "
+            "name = excluded.name, premiered = excluded.premiered, summary = excluded.summary, "
+            "genres = excluded.genres, fetched_at = excluded.fetched_at",
+            (name, data["tvmaze_id"], data["name"], data["premiered"], data["summary"],
+             json.dumps(data["genres"]), time.time()),
+        )
+        conn.execute("DELETE FROM tvmaze_episodes WHERE tvmaze_id = ?", (data["tvmaze_id"],))
+        conn.executemany(
+            "INSERT INTO tvmaze_episodes (tvmaze_id, season, number, absolute, name, summary, airdate, runtime) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [(data["tvmaze_id"], e["season"], e["number"], e["absolute"], e["name"], e["summary"],
+              e["airdate"], e["runtime"]) for e in data["episodes"]],
+        )
+        # The show's year and synopsis, where you have not typed your own.
+        year = int(data["premiered"][:4]) if data["premiered"][:4].isdigit() else None
+        conn.execute("INSERT INTO shows (name) VALUES (?) ON CONFLICT(name) DO NOTHING", (name,))
+        conn.execute("UPDATE shows SET year = COALESCE(year, ?), "
+                     "description = COALESCE(NULLIF(TRIM(description), ''), ?) WHERE name = ?",
+                     (year, data["summary"] or None, name))
+        found = apply_tvmaze(conn, name)
+        total = conn.execute("SELECT COUNT(*) FROM videos WHERE kind = 'episode' AND show = ?", (name,)).fetchone()[0]
+        have = artwork_map(conn).get(f"show:{name}", {})
+
+    # Box art from the poster and a background, only where you have none.
+    pictures = []
+    for slot, url in (("boxart", data["poster"]), ("background", data["background"])):
+        if url and not have.get(slot):
+            try:
+                store_artwork(f"show:{name}", slot, tvmaze.fetch_image(url))
+                pictures.append(slot)
+            except (OSError, ValueError, HTTPException):
+                pass
+    return {"show": name, "tvmaze_id": data["tvmaze_id"], "tvmaze_name": data["name"],
+            "tvmaze_episodes": len(data["episodes"]), "episodes_matched": found,
+            "episodes_total": total, "pictures_added": pictures}
+
+
+class TvmazeMatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tvmaze_id: int = Field(ge=1)
+
+
+@app.get("/api/shows/{name}/tvmaze/search", dependencies=[Depends(require_token)])
+def tvmaze_search(name: str, q: str = Query(default="", max_length=200)) -> dict:
+    """TVmaze shows that match q (default: the show's name), for the web form to pick from."""
+    with db() as conn:
+        require_show(conn, name)
+    query = q.strip() or name
+    try:
+        return {"query": query, "results": tvmaze.search(query)}
+    except (OSError, ValueError) as e:
+        raise HTTPException(502, f"TVmaze did not answer: {e}")
+
+
+@app.put("/api/shows/{name}/tvmaze", dependencies=[Depends(require_token)])
+def tvmaze_link(name: str, req: TvmazeMatch) -> dict:
+    """Use this TVmaze show for ours: copy it locally and fill in what is missing."""
+    return match_show(name, req.tvmaze_id)
+
+
+@app.post("/api/shows/{name}/tvmaze/refresh", dependencies=[Depends(require_token)])
+def tvmaze_refresh(name: str) -> dict:
+    """Copy the matched show again (new episodes, fixed synopses)."""
+    with db() as conn:
+        m = conn.execute("SELECT tvmaze_id FROM tvmaze_shows WHERE show = ?", (name,)).fetchone()
+    if m is None:
+        raise HTTPException(404, "That show is not matched.")
+    return match_show(name, m["tvmaze_id"])
+
+
+@app.delete("/api/shows/{name}/tvmaze", status_code=204, dependencies=[Depends(require_token)])
+def tvmaze_unlink(name: str) -> Response:
+    """Forget the match. Text already filled in stays."""
+    with db() as conn:
+        m = conn.execute("SELECT tvmaze_id FROM tvmaze_shows WHERE show = ?", (name,)).fetchone()
+        if m is None:
+            raise HTTPException(404, "That show is not matched.")
+        conn.execute("DELETE FROM tvmaze_shows WHERE show = ?", (name,))
+        if not conn.execute("SELECT 1 FROM tvmaze_shows WHERE tvmaze_id = ?", (m["tvmaze_id"],)).fetchone():
+            conn.execute("DELETE FROM tvmaze_episodes WHERE tvmaze_id = ?", (m["tvmaze_id"],))
     return Response(status_code=204)
 
 
@@ -1142,6 +1345,7 @@ def library_feed() -> dict:
         s["logo"] = slots["logo"]
         s["year"] = info.get("year")
         s["description"] = info.get("description") or ""
+        s["genres"] = info.get("genres", [])
     cont = playback.continue_watching(videos)
     # The home banner: what you watched last, or else the newest video.
     hero = (cont or lib["recent"] or [None])[0]

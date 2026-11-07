@@ -50,6 +50,12 @@
   .art-slot .pic img { width:100%; height:100%; object-fit:contain; border-radius:0; background:none; }
   .art-slot .row { display:flex; gap:6px; }
   .art-slot .row button { padding:3px 10px; font-size:13px; }
+  .match-results { display:flex; flex-direction:column; gap:8px; margin-top:8px; }
+  .match-hit { display:flex; gap:10px; align-items:flex-start; font-size:13px; }
+  .match-hit img, .match-hit .ph { width:48px; height:68px; flex:none; }
+  .match-hit .info { flex:1; }
+  .match-hit button { padding:4px 12px; font-size:13px; }
+  footer { margin:24px 0 8px; font-size:12px; color:var(--muted); }
   li.group.show img.art { width:96px; height:54px; object-fit:cover; border-radius:4px; vertical-align:middle; margin-right:10px; }
   li.group button { padding:2px 8px; font-size:12px; }
   .seen { color:var(--ok); }
@@ -85,6 +91,7 @@
   </nav>
   <ul id="list"></ul>
   <datalist id="show-names"></datalist>
+  <footer>Show and episode data from <a href="https://www.tvmaze.com" target="_blank" rel="noopener">TVmaze</a> (CC BY-SA).</footer>
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -403,6 +410,65 @@ function showInfoRow(name) {
   return el("li", {}, form);
 }
 
+// --- TVmaze match ---------------------------------------------------------------------
+// Search TVmaze for the show, pick the right one, and the server copies the show and
+// all its episodes: year, synopsis, episode titles and synopses, and box art and a
+// background where you have none. Like the other panels, it pauses the redraw.
+let matchOpen = null; // show name
+
+function matchButton(name) {
+  const m = (shows[name] || {}).tvmaze;
+  return el("button", { className: "ghost" + (matchOpen === name ? " on" : ""),
+    textContent: m ? "TVmaze ✓" : "Match",
+    title: m ? `Matched to ${m.name} on TVmaze` : "Fill in episode titles, synopses and pictures from TVmaze",
+    onclick: () => { matchOpen = matchOpen === name ? null : name; render(); } });
+}
+
+function matchPanel(name) {
+  const path = `/api/shows/${encodeURIComponent(name)}/tvmaze`;
+  const m = (shows[name] || {}).tvmaze;
+  const q = el("input", { value: m ? m.name : name, placeholder: "Show name on TVmaze" });
+  const results = el("div", { className: "match-results" });
+  const note = el("div", { className: "muted" });
+  function done(r) {
+    const pics = r.pictures_added.length ? ` Added ${r.pictures_added.join(" and ")}.` : "";
+    $("msg").textContent = `${name}: matched to ${r.tvmaze_name}. ${r.episodes_matched} of ${r.episodes_total} ` +
+      `episodes found on TVmaze (it lists ${r.tvmaze_episodes}).${pics}`;
+    matchOpen = null;
+    refresh(true);
+  }
+  async function run(label, fn) {
+    note.textContent = label;
+    try { await fn(); } catch (e) { note.textContent = e.message; }
+  }
+  const search = () => run("Searching TVmaze…", async () => {
+    const r = await api("GET", `${path}/search?q=${encodeURIComponent(q.value)}`);
+    note.textContent = r.results.length ? "Pick the right one:" : "No match. Try another spelling.";
+    results.replaceChildren(...r.results.map((hit) => el("div", { className: "match-hit" },
+      hit.image ? el("img", { src: hit.image, alt: "" }) : el("div", { className: "ph" }),
+      el("div", { className: "info" },
+        el("strong", { textContent: hit.name }), " ",
+        el("span", { className: "muted", textContent: [hit.premiered.slice(0, 4), hit.network, hit.language].filter(Boolean).join(" · ") }),
+        el("div", { className: "muted", textContent: hit.summary })),
+      el("button", { textContent: "Use this", onclick: () => run(`Copying ${hit.name} from TVmaze…`,
+        async () => done(await api("PUT", path, { tvmaze_id: hit.tvmaze_id }))) }))));
+  });
+  q.addEventListener("keydown", (ev) => { if (ev.key === "Enter") search(); if (ev.key === "Escape") { matchOpen = null; render(); } });
+  const head = m
+    ? el("div", {}, `Matched to `, el("strong", { textContent: m.name }), ` on TVmaze. `,
+        el("button", { className: "ghost", textContent: "Refresh", title: "Copy it again (new episodes, fixed synopses)",
+          onclick: () => run("Refreshing from TVmaze…", async () => done(await api("POST", `${path}/refresh`))) }), " ",
+        el("button", { className: "ghost", textContent: "Unmatch", title: "Forget the match; filled-in text stays",
+          onclick: () => run("", async () => { await api("DELETE", path); matchOpen = null; refresh(true); }) }))
+    : el("div", { className: "muted", textContent:
+        "Fills in what is missing: year, synopsis, episode titles and synopses, box art and background. " +
+        "Text you typed and pictures you uploaded stay." });
+  return el("li", { className: "subs" },
+    el("div", { style: "flex:1" }, el("strong", { textContent: `TVmaze for ${name}` }), head,
+      el("div", { className: "subs-add" }, q, el("button", { textContent: "Search", onclick: search })),
+      note, results));
+}
+
 // --- artwork ------------------------------------------------------------------------
 // Three pictures per show or movie. The server crops each one to its shape, so any
 // picture works. Like the subtitles panel, an open panel pauses the 2-second redraw.
@@ -485,8 +551,10 @@ function showRows(list) {
           onclick: () => { editingInfo = name; render(); } }) : "", " ",
         v.show ? el("button", { className: "ghost", textContent: "Intro & credits",
           onclick: () => { editingShow = name; render(); } }) : "", " ",
-        v.show ? artButton(`show:${name}`) : ""));
+        v.show ? artButton(`show:${name}`) : "", " ",
+        v.show ? matchButton(name) : ""));
       if (editingInfo === name) out.push(showInfoRow(name));
+      if (matchOpen === name) out.push(matchPanel(name));
       if (artOpen === `show:${name}`) out.push(artPanel(`/api/shows/${encodeURIComponent(name)}/art`, art, name));
       if (editingShow === name) out.push(showMarkersRow(name));
     }
@@ -529,7 +597,7 @@ async function refresh(force = false) {
     const data = await api("GET", "/api/videos");
     videos = data.videos;
     shows = data.shows || {};
-    if (force || (editing === null && editingShow === null && editingInfo === null && subsOpen === null && artOpen === null)) render();
+    if (force || (editing === null && editingShow === null && editingInfo === null && subsOpen === null && artOpen === null && matchOpen === null)) render();
     const d = data.disk;
     $("disk").textContent = `${d.free_gb} GB free of ${d.total_gb} GB · downloads stop below ${d.min_free_gb} GB`;
   } catch (e) {
