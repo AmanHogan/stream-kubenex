@@ -32,6 +32,22 @@ def tidy(text: str) -> str:
     return text.strip(" -[]()")
 
 
+# A year after a show's name: "Doctor Who (2005) S01E01" (in brackets), or
+# "Show.Name.2011.S01E01" (bare, in a dotted release name). A bare year in a normal
+# name may be part of it ("Blade Runner 2049"), so it stays.
+_SHOW_YEAR_BRACKETS = re.compile(r"[\s._-]*[(\[](?:19|20)\d{2}[)\]][\s._-]*$")
+_SHOW_YEAR_DOTTED = re.compile(r"\.(?:19|20)\d{2}[._-]*$")
+
+
+def show_name(text: str) -> str:
+    """The show part of an episode name, without a year tag after it. A name that is
+    only a year (the show "1883") stays."""
+    bare = _SHOW_YEAR_BRACKETS.sub("", text)
+    if "." in bare and " " not in bare.strip():
+        bare = _SHOW_YEAR_DOTTED.sub("", bare)
+    return tidy(bare) or tidy(text)
+
+
 def guess(name: str, default_kind: str) -> dict:
     """Guess library fields from a file name or a video title.
 
@@ -45,7 +61,7 @@ def guess(name: str, default_kind: str) -> dict:
             episode = int(m["episode"])
             return {
                 "kind": "episode",
-                "show": tidy(m["show"]),
+                "show": show_name(m["show"]),
                 "season": int(m["season"]),
                 "episode": episode,
                 "title": tidy(m["rest"]) or f"Episode {episode}",
