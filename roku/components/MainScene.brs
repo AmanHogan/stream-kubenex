@@ -859,14 +859,19 @@ function onKeyEvent(key as String, press as Boolean) as Boolean
             openPlayerMenu()
             return true
         end if
-        ' Other keys reach this scene from the Skip intro or Up Next button (they
-        ' use only OK). Pass them to the controls, which seek and pause.
-        if m.skip.visible
-            m.skipDismissed = true
-            hideSkip()
+        ' Keys from the Skip intro or Up Next button (they use only OK) go on to the
+        ' controls, which seek and pause. Nothing else: a key that started playback
+        ' elsewhere (OK on the show page's list) also arrives here, and must not
+        ' pause the video before its first frame.
+        if m.skipButton.isInFocusChain() or m.upNextButton.isInFocusChain()
+            if m.skip.visible
+                m.skipDismissed = true
+                hideSkip()
+            end if
+            m.controls.setFocus(true)
+            return m.controls.callFunc("handleKey", key)
         end if
-        m.controls.setFocus(true)
-        return m.controls.callFunc("handleKey", key)
+        return true
     end if
     if m.showScreen.visible then return false
     if key = "options"

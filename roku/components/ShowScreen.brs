@@ -142,6 +142,8 @@ function onKeyEvent(key as String, press as Boolean) as Boolean
         requestMenu()
         return true
     end if
+    ' The lists pass OK up after acting on it; it is used here, not by the player.
+    if key = "OK" then return true
     if key = "back"
         m.top.visible = false
         m.showName = invalid
